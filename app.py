@@ -345,8 +345,9 @@ def load_businesses_df():
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
+    boot_username = str(boot["username"]).strip().lower()
     creds = {"usernames": {
-        boot["username"]: {"name": boot["name"], "email": boot["username"], "password": boot_hash}
+        boot_username: {"name": boot["name"], "email": boot_username, "password": boot_hash}
     }}
     users_df = load_all_users_df()
     businesses_df = load_businesses_df()
@@ -360,12 +361,13 @@ def build_credentials():
         for _, row in active.iterrows():
             # A tenant login must never replace or impersonate the bootstrap
             # Platform Admin identity, including case-only email variations.
-            if str(row["username"]).strip().lower() == str(boot["username"]).strip().lower():
+            normalized_username = str(row["username"]).strip().lower()
+            if normalized_username == boot_username:
                 continue
-            creds["usernames"][row["username"]] = {
-                "name": row["name"], "email": row["username"], "password": row["password_hash"]
+            creds["usernames"][normalized_username] = {
+                "name": row["name"], "email": normalized_username, "password": row["password_hash"]
             }
-    return creds, boot["username"]
+    return creds, boot_username
 
 
 credentials, bootstrap_username = build_credentials()
@@ -432,7 +434,7 @@ elif auth_status is None:
     st.stop()
 
 display_name = st.session_state.get("name", "")
-username = st.session_state.get("username", "")
+username = str(st.session_state.get("username", "") or "").strip().lower()
 
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -453,7 +455,8 @@ def current_user_context():
     users_df = load_all_users_df()
     if users_df.empty:
         return None, None, None
-    row = users_df[users_df["username"] == username]
+    normalized_usernames = users_df["username"].astype(str).str.strip().str.lower()
+    row = users_df[normalized_usernames == username]
     if row.empty:
         return None, None, None
     r = row.iloc[0]

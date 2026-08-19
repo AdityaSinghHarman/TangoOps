@@ -197,6 +197,9 @@ def update_business_name(business_id: str, new_name: str):
 
 # ---------------- users (global table, business_id-tagged) ----------------
 
+def _normalize_username(username: str) -> str:
+    return str(username or "").strip().lower()
+
 def get_all_users() -> pd.DataFrame:
     return _query(
         "SELECT username, name, password_hash, role, business_id, sub_agency, status, created_at "
@@ -213,18 +216,19 @@ def get_users(business_id: str) -> pd.DataFrame:
 
 
 def get_user(username: str):
-    df = _query("SELECT * FROM users WHERE username=%s", (username,))
+    df = _query("SELECT * FROM users WHERE lower(trim(username))=%s", (_normalize_username(username),))
     return None if df.empty else df.iloc[0]
 
 
 def username_taken(username: str) -> bool:
-    df = _query("SELECT 1 FROM users WHERE username=%s", (username,))
+    df = _query("SELECT 1 FROM users WHERE lower(trim(username))=%s", (_normalize_username(username),))
     return not df.empty
 
 
 def create_user(username: str, name: str, password_plain: str, role: str,
                  business_id: str, sub_agency: str = "", status: str = "Active") -> tuple:
     import streamlit_authenticator as stauth
+    username = _normalize_username(username)
     if username_taken(username):
         return False, f"'{username}' is already registered on this platform."
     password_hash = stauth.Hasher().hash(password_plain)
@@ -237,13 +241,13 @@ def create_user(username: str, name: str, password_plain: str, role: str,
 
 
 def set_user_status(username: str, status: str):
-    _execute("UPDATE users SET status=%s WHERE username=%s", (status, username))
+    _execute("UPDATE users SET status=%s WHERE lower(trim(username))=%s", (status, _normalize_username(username)))
 
 
 def reset_user_password(username: str, new_password_plain: str):
     import streamlit_authenticator as stauth
-    _execute("UPDATE users SET password_hash=%s WHERE username=%s",
-              (stauth.Hasher().hash(new_password_plain), username))
+    _execute("UPDATE users SET password_hash=%s WHERE lower(trim(username))=%s",
+              (stauth.Hasher().hash(new_password_plain), _normalize_username(username)))
 
 
 # ---------------- agencies ----------------
