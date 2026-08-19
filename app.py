@@ -308,7 +308,7 @@ TABLE_COLUMN_CONFIG = {
     "diamonds_per_day": st.column_config.NumberColumn("Diamonds per day", format="localized", width="small"),
     "growth_pct": st.column_config.NumberColumn("Growth vs previous month", format="%.1f%%", width="medium"),
     "is_new": st.column_config.CheckboxColumn("New broadcaster", width="small"),
-    "profile_url": st.column_config.LinkColumn("Profile", display_text="Open profile", width="small"),
+    "profile_url": st.column_config.LinkColumn("Web profile", display_text="Open profile", width="medium"),
 }
 
 
@@ -1836,7 +1836,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         c3.metric("New", new_count)
         c4.metric("Need assignment", unassigned_count)
         st.caption(f"This updates **{period}** only. Other periods stay untouched.")
-        preview_columns = ["broadcaster_name", "diamonds_redeemed", "streaming_days"]
+        preview_columns = ["broadcaster_name", "profile_url", "diamonds_redeemed", "streaming_days"]
         st.dataframe(
             clean_df[preview_columns].head(10), hide_index=True, width='stretch',
             column_config=table_column_config(preview_columns),
