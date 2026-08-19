@@ -1705,6 +1705,14 @@ elif st.session_state.page == "CreateAgency":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
+    create_agency_success = st.session_state.pop("_create_agency_success", None)
+    if create_agency_success:
+        for form_key in (
+            "ca_name", "ca_contact", "ca_phone", "ca_commission_pct",
+            "ca_make_login", "ca_email", "ca_password", "ca_status", "ca_notes",
+        ):
+            st.session_state.pop(form_key, None)
+        st.toast(create_agency_success, icon="\u2705")
     st.title("Create Sub-Agency")
 
     name = st.text_input("Agency name (e.g. Partner X)", key="ca_name")
@@ -1769,7 +1777,8 @@ elif st.session_state.page == "CreateAgency":
                 st.stop()
             msg += f" Login created for {login_email.strip()}."
         refresh_caches()
-        st.success(msg)
+        st.session_state["_create_agency_success"] = msg
+        st.rerun()
 
     st.markdown("##### Existing Sub-Agencies")
     existing_agencies = store.get_agency_details(business_id)
