@@ -615,13 +615,13 @@ with st.sidebar:
 
     else:
         st.markdown("### \u25c8 TangoOps")
-        st.caption("AGENCY CONTROL")
+        st.caption("PLATFORM CONTROL")
         if business_name:
             st.caption(business_name)
         st.write("")
 
     if is_platform_admin:
-        nav_button("Agencies", "Businesses")
+        nav_button("Platform overview", "Businesses", ":material/admin_panel_settings:")
         st.write("")
         nav_button("My profile", "MyProfile")
         if avatar_b64:
@@ -631,6 +631,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
         st.caption(f"Signed in as **{display_name}**")
+        st.caption("Platform Administrator")
         authenticator.logout("Sign out", "sidebar")
 
 # --------------------------------------------------------- shared loaders --
@@ -700,8 +701,8 @@ if st.session_state.page == "Businesses":
     <div class="admin-hero">
       <div>
         <div class="admin-kicker">Platform administration</div>
-        <h1>Agency workspace</h1>
-        <p>Create and manage isolated agency accounts, owners, and platform access.</p>
+        <h1>Platform overview</h1>
+        <p>Monitor platform health and manage isolated agency accounts, owners, and access.</p>
       </div>
       <div class="admin-secure-pill">● Platform admin access</div>
     </div>
@@ -801,7 +802,7 @@ if st.session_state.page == "Businesses":
                                   showarrow=False, font=dict(size=16, color="#172016"))],
             )
             with st.container(border=True):
-                st.plotly_chart(health_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(health_fig, use_container_width=True, config={"displayModeBar": False})
 
     recent_platform_activity = store.get_recent_platform_activity(8)
     if not recent_platform_activity.empty:
@@ -1309,7 +1310,7 @@ elif st.session_state.page == "Admin":
                     font=dict(family="Inter", color="#4C5548"), showlegend=False,
                 )
                 with st.container(border=True):
-                    st.plotly_chart(compare_fig, width="stretch", config={"displayModeBar": False})
+                    st.plotly_chart(compare_fig, use_container_width=True, config={"displayModeBar": False})
                     fc1, fc2 = st.columns(2)
                     fc1.metric("Forecast commission", f"${comparison['Commission due'].sum():,.2f}")
                     fc2.metric("Redeemed value", f"${comparison['Gross value'].sum():,.2f}")
@@ -1362,7 +1363,7 @@ elif st.session_state.page == "Admin":
         fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
-            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
         st.info("Upload a second month to unlock the performance trend.")
 
