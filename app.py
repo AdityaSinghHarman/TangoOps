@@ -1,11 +1,13 @@
 import datetime as dt
 import re
 import base64
+import html
 import secrets as pysecrets
 import string
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit_authenticator as stauth
 
 import utils
@@ -17,6 +19,135 @@ st.set_page_config(page_title="TangoOps – Agency Control", layout="wide", page
 st.markdown("""
 <style>
 :root{ --brand:#3F6B1E; --brand-soft:#EEF3E7; --ink:#1C1D1A; --card-radius:14px; --border:#E3E3DD; }
+
+/* Login */
+.stApp:has(.tango-login-shell){
+  background:
+    radial-gradient(circle at 12% 12%, rgba(77,124,15,.10), transparent 30rem),
+    linear-gradient(135deg,#F7F9F3 0%,#FFFFFF 52%,#F4F7EF 100%);
+}
+.stApp:has(.tango-login-shell) [data-testid="stHeader"]{ background:transparent; }
+.stApp:has(.tango-login-shell) [data-testid="stMainBlockContainer"]{
+  max-width:1180px; padding-top:5.5rem; padding-bottom:3rem;
+}
+.tango-login-hero{ padding:2.1rem 3.5rem 2rem .5rem; }
+.tango-login-brand{ display:flex; align-items:center; gap:.75rem; color:#174A19;
+  font-size:1.25rem; font-weight:750; letter-spacing:-.02em; margin-bottom:5.5rem; }
+.tango-login-mark{ width:2.25rem; height:2.25rem; display:grid; place-items:center;
+  color:#fff; background:linear-gradient(145deg,#315E18,#74A843); border-radius:.7rem;
+  box-shadow:0 8px 20px rgba(63,107,30,.22); transform:rotate(45deg); }
+.tango-login-mark span{ transform:rotate(-45deg); font-size:1.05rem; }
+.tango-login-eyebrow{ color:var(--brand); font-size:.76rem; line-height:1;
+  font-weight:750; letter-spacing:.12em; text-transform:uppercase; margin-bottom:1rem; }
+.tango-login-hero h1{ max-width:640px; color:#172016; font-size:clamp(2.6rem,5vw,4.6rem);
+  line-height:1.02; letter-spacing:-.055em; margin:0 0 1.25rem; }
+.tango-login-hero p{ max-width:560px; color:#5E685B; font-size:1.05rem;
+  line-height:1.7; margin:0; }
+.tango-login-proof{ display:flex; gap:1.6rem; flex-wrap:wrap; margin-top:2.25rem;
+  color:#42503F; font-size:.88rem; font-weight:600; }
+.tango-login-proof span::before{ content:'\2713'; display:inline-grid; place-items:center;
+  width:1.25rem; height:1.25rem; margin-right:.45rem; color:#39751C;
+  background:#E6F2DE; border-radius:50%; }
+.tango-login-panel-head{ margin:0 0 1.5rem; }
+.tango-login-panel-head h2{ color:#172016; font-size:1.85rem; line-height:1.2;
+  letter-spacing:-.035em; margin:0 0 .45rem; }
+.tango-login-panel-head p{ color:#6A7367; font-size:.92rem; margin:0; }
+.tango-login-foot{ color:#7B8378; text-align:center; font-size:.76rem; margin-top:1.25rem; }
+.stApp:has(.tango-login-shell) div[data-testid="stColumn"]:has(.tango-login-panel-head){
+  align-self:center; background:rgba(255,255,255,.94); border:1px solid #DDE4D8;
+  border-radius:1.4rem; padding:2.35rem 2.35rem 1.8rem;
+  box-shadow:0 24px 70px rgba(36,61,22,.12),0 3px 12px rgba(28,29,26,.04);
+}
+.stApp:has(.tango-login-shell) div[data-testid="stForm"]{ border:0; padding:0; }
+.stApp:has(.tango-login-shell) div[data-testid="stForm"] h2{ display:none; }
+.stApp:has(.tango-login-shell) div[data-testid="stTextInput"] label{
+  color:#293326; font-size:.84rem; font-weight:650;
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"]{
+  min-height:3rem; background:#FBFCFA; border-color:#D8DFD3; border-radius:.7rem;
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"]:focus-within{
+  border-color:#54842F; box-shadow:0 0 0 3px rgba(84,132,47,.14);
+}
+.stApp:has(.tango-login-shell) div[data-testid="stForm"] button{
+  width:100%; min-height:3rem; margin-top:.7rem; color:#fff; font-weight:700;
+  background:linear-gradient(135deg,#315E18,#4F812B); border:0; border-radius:.7rem;
+  box-shadow:0 8px 18px rgba(49,94,24,.19);
+}
+.stApp:has(.tango-login-shell) div[data-testid="stForm"] button:hover{
+  color:#fff; background:linear-gradient(135deg,#274F12,#416F22);
+  box-shadow:0 10px 22px rgba(49,94,24,.25); transform:translateY(-1px);
+}
+.stApp:has(.tango-login-shell) div[data-testid="stAlert"]{ border-radius:.7rem; }
+
+/* Platform admin */
+.stApp:has(.platform-admin-page) [data-testid="stMainBlockContainer"]{ max-width:1440px; padding-top:2.3rem; }
+.stApp:has(.platform-admin-page){ background:#F7F9F6; }
+.stApp:has(.platform-admin-page) section[data-testid="stSidebar"]{ background:#FFFFFF; border-right:1px solid #E2E7DE; }
+.admin-hero{ display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; margin:0 0 1.5rem; }
+.admin-kicker{ color:#4D7B2E; font-size:.75rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.65rem; }
+.admin-hero h1{ color:#172016; font-size:2.35rem; line-height:1.1; letter-spacing:-.045em; margin:0 0 .45rem; }
+.admin-hero p{ color:#667063; font-size:.97rem; margin:0; }
+.admin-secure-pill{ flex:none; color:#35631D; background:#EAF3E4; border:1px solid #D4E5C9; border-radius:999px; padding:.55rem .85rem; font-size:.78rem; font-weight:700; }
+.admin-section-head{ margin:1.5rem 0 1rem; }
+.admin-section-head h2{ color:#1D271B; font-size:1.25rem; margin:0 0 .25rem; }
+.admin-section-head p{ color:#70796D; font-size:.86rem; margin:0; }
+.agency-status{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.25rem .55rem; font-size:.72rem; font-weight:700; line-height:1; }
+.agency-status::before{ content:''; width:.4rem; height:.4rem; border-radius:50%; background:currentColor; }
+.agency-status.active{ color:#24722C; background:#E7F4E8; }
+.agency-status.disabled{ color:#8A4D1F; background:#F9ECDD; }
+.empty-agencies{ text-align:center; padding:3.5rem 1rem; color:#6B7468; }
+.empty-agencies-icon{ width:3rem; height:3rem; margin:0 auto 1rem; display:grid; place-items:center; color:#47742B; background:#EAF3E4; border-radius:1rem; font-size:1.3rem; }
+.stApp:has(.platform-admin-page) div[data-testid="stVerticalBlockBorderWrapper"]{ background:#FFFFFF; border-color:#E0E5DC; border-radius:1rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
+.stApp:has(.platform-admin-page) .kpi-card{ min-height:118px; margin-bottom:.25rem; border-color:#E0E5DC; box-shadow:0 2px 8px rgba(30,45,23,.025); }
+.stApp:has(.platform-admin-page) div[data-baseweb="input"],
+.stApp:has(.platform-admin-page) div[data-baseweb="select"] > div{ background:#FFFFFF; border-color:#D9E0D5; }
+
+/* Agency owner business overview */
+.stApp:has(.owner-overview-page) [data-testid="stMainBlockContainer"]{ max-width:1500px; padding-top:2.1rem; }
+.stApp:has(.owner-overview-page){ background:#F7F9F6; }
+.overview-hero{ display:flex; justify-content:space-between; align-items:flex-end; gap:2rem; margin-bottom:1.35rem; }
+.overview-hero h1{ color:#172016; font-size:2.25rem; line-height:1.1; letter-spacing:-.045em; margin:0 0 .4rem; }
+.overview-hero p{ color:#687165; font-size:.95rem; margin:0; }
+.overview-eyebrow{ color:#4D7B2E; font-size:.73rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.55rem; }
+.overview-period-pill{ color:#43513E; background:#FFFFFF; border:1px solid #DEE5DA; border-radius:.75rem; padding:.6rem .8rem; font-size:.78rem; font-weight:650; }
+.overview-kpi{ min-height:150px; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; padding:1.15rem 1.2rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
+.overview-kpi-top{ display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
+.overview-kpi-label{ color:#667063; font-size:.78rem; font-weight:650; }
+.overview-kpi-icon{ width:2rem; height:2rem; display:grid; place-items:center; color:#47742B; background:#EAF3E4; border-radius:.65rem; font-size:1rem; }
+.overview-kpi-value{ color:#182116; font-size:1.85rem; line-height:1; font-weight:760; letter-spacing:-.035em; }
+.overview-kpi-note{ color:#778073; font-size:.73rem; margin-top:.75rem; }
+.overview-kpi-note.up{ color:#287331; }.overview-kpi-note.down{ color:#B1453D; }
+.overview-section{ margin:1.7rem 0 .8rem; }
+.overview-section h2{ color:#1C251A; font-size:1.25rem; margin:0 0 .25rem; }
+.overview-section p{ color:#747C70; font-size:.84rem; margin:0; }
+.insight-card{ min-height:116px; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; padding:1.05rem 1.1rem; }
+.insight-label{ color:#70796C; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-bottom:.65rem; }
+.insight-value{ color:#1B2419; font-size:1.35rem; font-weight:750; letter-spacing:-.025em; }
+.insight-caption{ color:#727A6F; font-size:.76rem; margin-top:.35rem; }
+.stApp:has(.owner-overview-page) div[data-testid="stVerticalBlockBorderWrapper"]{ background:#FFFFFF; border-color:#E0E5DC; border-radius:1rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
+.stApp:has(.owner-overview-page) div[data-baseweb="select"] > div{ background:#FFFFFF; border-color:#D9E0D5; }
+@media (max-width: 800px){
+  .overview-hero{ align-items:flex-start; flex-direction:column; gap:.8rem; }
+  .overview-hero h1{ font-size:1.9rem; }
+  .overview-period-pill{ display:none; }
+  .overview-kpi{ min-height:132px; }
+}
+@media (max-width: 800px){
+  .admin-hero{ align-items:flex-start; flex-direction:column; gap:1rem; }
+  .admin-hero h1{ font-size:1.95rem; }
+  .admin-secure-pill{ display:none; }
+}
+@media (max-width: 800px){
+  .stApp:has(.tango-login-shell) [data-testid="stMainBlockContainer"]{ padding:1.4rem 1rem 2rem; }
+  .tango-login-hero{ padding:.5rem .2rem 1.5rem; }
+  .tango-login-brand{ margin-bottom:2.5rem; }
+  .tango-login-hero h1{ font-size:2.5rem; }
+  .tango-login-proof{ margin-top:1.4rem; gap:.75rem 1.1rem; }
+  .stApp:has(.tango-login-shell) div[data-testid="stColumn"]:has(.tango-login-panel-head){
+    padding:1.65rem 1.25rem 1.25rem; border-radius:1.1rem;
+  }
+}
 
 .kpi-card{
   background:#FFFFFF; border:1px solid var(--border); border-radius:var(--card-radius);
@@ -47,6 +178,25 @@ def kpi_card(label, value, dark=False):
     cls = "kpi-card dark" if dark else "kpi-card"
     st.markdown(f"""<div class="{cls}"><div class="kpi-label">{label}</div>
         <div class="kpi-value">{value}</div></div>""", unsafe_allow_html=True)
+
+
+def overview_kpi_card(label, value, icon, note="", direction=""):
+    note_class = f" {direction}" if direction else ""
+    safe_label = html.escape(str(label))
+    safe_value = html.escape(str(value))
+    safe_icon = html.escape(str(icon))
+    safe_note = html.escape(str(note))
+    note_html = f'<div class="overview-kpi-note{note_class}">{safe_note}</div>' if note else ""
+    st.markdown(f"""
+    <div class="overview-kpi">
+      <div class="overview-kpi-top">
+        <div class="overview-kpi-label">{safe_label}</div>
+        <div class="overview-kpi-icon">{safe_icon}</div>
+      </div>
+      <div class="overview-kpi-value">{safe_value}</div>
+      {note_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def is_valid_email(value: str) -> bool:
@@ -95,14 +245,53 @@ authenticator = stauth.Authenticate(
     auto_hash=False,
 )
 
-authenticator.login(location="main")
+# Keep the authentication mechanism intact while presenting it in a branded,
+# responsive shell. A rerun removes the shell immediately after cookie/login
+# authentication so authenticated pages never inherit login-only styling.
+was_authenticated = st.session_state.get("authentication_status") is True
+if not was_authenticated:
+    st.markdown('<div class="tango-login-shell"></div>', unsafe_allow_html=True)
+    hero_col, login_col = st.columns([1.35, 0.85], gap="large", vertical_alignment="center")
+    with hero_col:
+        st.markdown("""
+        <div class="tango-login-hero">
+          <div class="tango-login-brand">
+            <div class="tango-login-mark"><span>◆</span></div>TangoOps
+          </div>
+          <div class="tango-login-eyebrow">Agency operations, simplified</div>
+          <h1>Turn performance data into confident action.</h1>
+          <p>One secure workspace to monitor broadcaster performance, manage
+          agency relationships, and keep every report on track.</p>
+          <div class="tango-login-proof">
+            <span>Role-based access</span><span>Secure reporting</span><span>Live insights</span>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+    with login_col:
+        st.markdown("""
+        <div class="tango-login-panel-head">
+          <h2>Welcome back</h2>
+          <p>Sign in to continue to your TangoOps workspace.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        authenticator.login(location="main", fields={
+            "Form name": "Sign in",
+            "Username": "Email address",
+            "Password": "Password",
+            "Login": "Sign in",
+        })
+        st.markdown('<div class="tango-login-foot">Protected access · TangoOps Agency Control</div>',
+                    unsafe_allow_html=True)
+
 auth_status = st.session_state.get("authentication_status")
 
+if auth_status is True and not was_authenticated:
+    st.rerun()
+
 if auth_status is False:
-    st.error("Username or password is incorrect.")
+    st.error("We couldn't sign you in. Check your email and password, then try again.")
     st.stop()
 elif auth_status is None:
-    st.info("Enter your email and password to continue.")
     st.stop()
 
 display_name = st.session_state.get("name", "")
@@ -259,95 +448,169 @@ if st.session_state.page == "Businesses":
     if not is_platform_admin:
         st.error("Platform admin access only.")
         st.stop()
-    st.title("Agencies")
-    st.caption("Each agency below gets its own completely separate broadcasters, sub-agencies, and logins.")
+    st.markdown('<div class="platform-admin-page"></div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="admin-hero">
+      <div>
+        <div class="admin-kicker">Platform administration</div>
+        <h1>Agency workspace</h1>
+        <p>Create and manage isolated agency accounts, owners, and platform access.</p>
+      </div>
+      <div class="admin-secure-pill">● Platform admin access</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("##### Create agency")
-    biz_name = st.text_input("Agency name", key="biz_name")
-    st.markdown("###### Owner login for this agency")
-    c1, c2 = st.columns(2)
-    with c1:
-        owner_email = st.text_input("Owner email", key="biz_owner_email")
-        owner_name = st.text_input("Owner name", key="biz_owner_name")
-    with c2:
-        st.write("")
-        if st.button("Generate password"):
-            alphabet = string.ascii_letters + string.digits
-            st.session_state.biz_owner_password = "".join(pysecrets.choice(alphabet) for _ in range(10))
-        owner_password = st.text_input("Owner password", key="biz_owner_password")
-
-    if st.button("Create agency", type="primary", disabled=not biz_name.strip()):
-        if not is_valid_email(owner_email):
-            st.error("Enter a valid owner email address.")
-            st.stop()
-        if not owner_password.strip():
-            st.error("Enter a password, or use Generate password.")
-            st.stop()
-        new_business_id = store.create_business(biz_name.strip())
-        ok, msg = store.create_user(
-            owner_email.strip(), owner_name.strip() or owner_email.strip(),
-            owner_password, "owner", new_business_id,
-        )
-        if not ok:
-            st.error(msg)
-            st.stop()
-        refresh_caches()
-        st.toast(f"Created {biz_name.strip()} with owner login {owner_email.strip()}.", icon="\u2705")
-        st.rerun()
-
-    st.markdown("##### Existing agencies")
     businesses = store.get_businesses()
-    if businesses.empty:
-        st.caption("No agencies yet.")
+    all_users = load_all_users_df()
+    total_agencies = len(businesses)
+    active_agencies = int((businesses["status"] == "Active").sum()) if not businesses.empty else 0
+    total_owners = int((all_users["role"] == "owner").sum()) if not all_users.empty else 0
+    total_sub_agencies = (sum(len(store.get_agencies(bid)) for bid in businesses["business_id"])
+                          if not businesses.empty else 0)
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        kpi_card("Total agencies", f"{total_agencies:,}")
+    with m2:
+        kpi_card("Active agencies", f"{active_agencies:,}")
+    with m3:
+        kpi_card("Owner accounts", f"{total_owners:,}")
+    with m4:
+        kpi_card("Sub-agencies", f"{total_sub_agencies:,}")
+
+    create_tab = st.expander("＋ Create a new agency", expanded=False)
+    directory_tab = st.container()
+    with create_tab:
+        st.markdown("""
+        <div class="admin-section-head">
+          <h2>Set up a new agency</h2>
+          <p>Create the agency workspace and its first owner account together.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        with st.container(border=True):
+            biz_name = st.text_input("Agency name", key="biz_name", placeholder="e.g. Northstar Talent")
+            st.markdown("###### Primary owner")
+            c1, c2 = st.columns(2)
+            with c1:
+                owner_name = st.text_input("Owner name", key="biz_owner_name", placeholder="Full name")
+                owner_email = st.text_input("Owner email", key="biz_owner_email", placeholder="owner@agency.com")
+            with c2:
+                owner_password = st.text_input(
+                    "Temporary password", key="biz_owner_password", type="password",
+                    help="The owner can use this password for their first sign-in.",
+                )
+                if st.button("Generate secure password", key="generate_biz_password"):
+                    alphabet = string.ascii_letters + string.digits
+                    st.session_state.biz_owner_password = "".join(
+                        pysecrets.choice(alphabet) for _ in range(12)
+                    )
+                    st.rerun()
+
+            st.caption("Agency data and user access are isolated from every other agency.")
+            if st.button("Create agency", type="primary", disabled=not biz_name.strip(), width="stretch"):
+                if not is_valid_email(owner_email):
+                    st.error("Enter a valid owner email address.")
+                    st.stop()
+                if not owner_password.strip():
+                    st.error("Enter a temporary password, or generate one.")
+                    st.stop()
+                new_business_id = store.create_business(biz_name.strip())
+                ok, msg = store.create_user(
+                    owner_email.strip(), owner_name.strip() or owner_email.strip(),
+                    owner_password, "owner", new_business_id,
+                )
+                if not ok:
+                    st.error(msg)
+                    st.stop()
+                refresh_caches()
+                st.toast(f"Created {biz_name.strip()} with owner login {owner_email.strip()}.", icon="\u2705")
+                st.rerun()
+
+    with directory_tab:
+        st.markdown("""
+        <div class="admin-section-head">
+          <h2>Agency directory</h2>
+          <p>Find an agency, review its access, or update its owner credentials.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        f1, f2 = st.columns([2.2, 1])
+        search_agencies = f1.text_input(
+            "Search agencies", placeholder="Search by agency name or ID",
+            key="platform_agency_search", label_visibility="collapsed",
+        )
+        status_filter = f2.selectbox(
+            "Status", ["All statuses", "Active", "Disabled"],
+            key="platform_status_filter", label_visibility="collapsed",
+        )
+        visible_businesses = businesses.copy()
+        if search_agencies.strip() and not visible_businesses.empty:
+            needle = search_agencies.strip().lower()
+            visible_businesses = visible_businesses[
+                visible_businesses["business_name"].astype(str).str.lower().str.contains(needle, regex=False)
+                | visible_businesses["business_id"].astype(str).str.lower().str.contains(needle, regex=False)
+            ]
+        if status_filter != "All statuses" and not visible_businesses.empty:
+            visible_businesses = visible_businesses[visible_businesses["status"] == status_filter]
+        st.caption(f"Showing {len(visible_businesses)} of {len(businesses)} agencies")
+    if visible_businesses.empty:
+        st.info("No agencies match your current search and status filters.")
     else:
-        for _, b in businesses.iterrows():
+        for _, b in visible_businesses.iterrows():
             bid = b["business_id"]
             with st.container(border=True):
-                c1, c2 = st.columns([3, 1])
+                c1, c2 = st.columns([3, 1.15], vertical_alignment="center")
                 owners_df = store.get_users(bid)
                 owners_only = owners_df[owners_df["role"] == "owner"] if not owners_df.empty else owners_df
                 owner_count = len(owners_only)
                 agency_count = len(store.get_agencies(bid))
-                c1.markdown(f"**{b['business_name']}**  \n`{bid}` \u00b7 "
-                            f"{owner_count} owner login(s) \u00b7 {agency_count} sub-agencies \u00b7 "
-                            f"status: {b['status']}")
+                c1.markdown(f"### {b['business_name']}")
+                c1.markdown(f"`{bid}` &nbsp; · &nbsp; {owner_count} owner account(s) "
+                            f"&nbsp; · &nbsp; {agency_count} sub-agencies")
+                status_class = "active" if b["status"] == "Active" else "disabled"
+                c1.markdown(f'<span class="agency-status {status_class}">{b["status"]}</span>',
+                            unsafe_allow_html=True)
                 with c2:
                     b1, b2 = st.columns(2)
-                    if b1.button("Edit", key=f"editbiz_{bid}"):
+                    if b1.button("Manage", key=f"editbiz_{bid}", width="stretch"):
                         st.session_state["editing_biz"] = None if st.session_state.get("editing_biz") == bid else bid
                         st.rerun()
                     with b2:
                         if b["status"] == "Active":
-                            if st.button("Disable", key=f"disbiz_{bid}"):
+                            if st.button("Disable", key=f"disbiz_{bid}", width="stretch"):
                                 store.set_business_status(bid, "Disabled")
                                 refresh_caches()
+                                st.toast(f"{b['business_name']} disabled.")
                                 st.rerun()
                         else:
-                            if st.button("Enable", key=f"enbiz_{bid}"):
+                            if st.button("Enable", key=f"enbiz_{bid}", type="primary", width="stretch"):
                                 store.set_business_status(bid, "Active")
                                 refresh_caches()
+                                st.toast(f"{b['business_name']} enabled.", icon="\u2705")
                                 st.rerun()
 
                 if st.session_state.get("editing_biz") == bid:
-                    st.markdown("---")
+                    st.divider()
+                    st.markdown("###### Agency details")
                     new_name = st.text_input("Agency name", value=b["business_name"], key=f"rename_{bid}")
-                    if st.button("Save name", key=f"savename_{bid}"):
+                    if st.button("Save agency name", key=f"savename_{bid}", type="primary"):
                         store.update_business_name(bid, new_name.strip() or b["business_name"])
                         refresh_caches()
                         st.toast("Agency name updated.", icon="\u2705")
                         st.rerun()
 
-                    st.markdown("###### Owner logins \u2014 reset a forgotten password")
+                    st.markdown("###### Owner access")
                     if owners_only.empty:
-                        st.caption("No owner login exists for this agency yet.")
+                        st.info("No owner account exists for this agency yet.")
                     else:
                         for _, ow in owners_only.iterrows():
-                            oc1, oc2 = st.columns([2, 1])
-                            oc1.markdown(f"{ow['name']}  \n`{ow['username']}`")
+                            oc1, oc2 = st.columns([2, 1], vertical_alignment="center")
+                            oc1.markdown(f"**{ow['name']}**  \n`{ow['username']}`")
                             with oc2:
-                                with st.popover("Reset password"):
-                                    newpw = st.text_input("New password", key=f"bizpw_{ow['username']}")
-                                    if st.button("Save", key=f"bizpwsave_{ow['username']}"):
+                                with st.popover("Reset password", use_container_width=True):
+                                    newpw = st.text_input("New password", type="password",
+                                                          key=f"bizpw_{ow['username']}")
+                                    if st.button("Save password", key=f"bizpwsave_{ow['username']}",
+                                                 type="primary", width="stretch"):
                                         if newpw.strip():
                                             store.reset_user_password(ow["username"], newpw.strip())
                                             st.success("Password updated.")
@@ -409,17 +672,32 @@ elif st.session_state.page == "MyProfile":
 
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":
-    st.markdown("#### Admin panel" if is_owner else "#### My dashboard")
-    st.title(business_name if is_owner else f"{user_agency} dashboard")
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    overview_title = "Business overview" if is_owner else f"{html.escape(str(user_agency))} overview"
+    overview_subtitle = (f"Performance across {html.escape(str(business_name))}'s agency network" if is_owner
+                         else "Performance for your assigned broadcaster roster")
+    st.markdown(f"""
+    <div class="overview-hero">
+      <div>
+        <div class="overview-eyebrow">{'Agency owner' if is_owner else 'Sub-agency workspace'}</div>
+        <h1>{overview_title}</h1>
+        <p>{overview_subtitle}</p>
+      </div>
+      <div class="overview-period-pill">Live operational overview</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     monthly_periods = store.list_periods("monthly", business_id)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet. Go to **Upload report** in the sidebar.")
         st.stop()
 
-    current_period = st.selectbox("Month", sorted(monthly_periods, reverse=True), key="admin_month")
+    filter_month, filter_agency = st.columns(2)
+    with filter_month:
+        current_period = st.selectbox("Reporting month", sorted(monthly_periods, reverse=True), key="admin_month")
     df_current_all = period_data(current_period, "monthly")
-    df_current, agency_choice = agency_filter_widget(df_current_all, "admin_agency")
+    with filter_agency:
+        df_current, agency_choice = agency_filter_widget(df_current_all, "admin_agency")
 
     previous_period = previous_period_of(current_period, "monthly")
     df_previous = period_data(previous_period, "monthly") if previous_period else pd.DataFrame()
@@ -447,30 +725,85 @@ elif st.session_state.page == "Admin":
     n_agencies = max(1, len(load_agencies(business_id))) if is_owner else 1
     avg_dpb = round(kpis["diamonds_redeemed"] / kpis["broadcasters"], 1) if kpis["broadcasters"] else 0
 
-    c1, c2 = st.columns(2)
-    with c1: kpi_card("Total broadcasters", f"{kpis['broadcasters']:,}")
-    with c2: kpi_card("Active broadcasters", f"{kpis['active']:,}")
-    c3, c4 = st.columns(2)
-    with c3: kpi_card("Diamonds redeemed", f"{kpis['diamonds_redeemed']:,}")
-    with c4: kpi_card("Days streamed", f"{kpis['days_worked']:,}")
-    c5, c6 = st.columns(2)
-    with c5: kpi_card("Active sub-agencies", n_agencies)
-    with c6: kpi_card("Avg diamonds / broadcaster", f"{avg_dpb:,}")
+    def overview_delta(metric):
+        if not prev_kpis:
+            return "First reporting period", ""
+        pct, delta_direction = utils.compare_periods(kpis, prev_kpis, metric)
+        arrow = "↑" if delta_direction == "up" else "↓"
+        return f"{arrow} {abs(pct):.1f}% vs {previous_period}", delta_direction
 
-    st.markdown("#### Insights")
+    broadcaster_note, broadcaster_direction = overview_delta("broadcasters")
+    active_note, active_direction = overview_delta("active")
+    diamond_note, diamond_direction = overview_delta("diamonds_redeemed")
+    earning_note, earning_direction = overview_delta("my_earnings_usd")
+    days_note, days_direction = overview_delta("days_worked")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        overview_kpi_card("Total broadcasters", f"{kpis['broadcasters']:,}", "♟",
+                          broadcaster_note, broadcaster_direction)
+    with c2:
+        overview_kpi_card("Active broadcasters", f"{kpis['active']:,}", "●",
+                          active_note, active_direction)
+    with c3:
+        overview_kpi_card("Diamonds redeemed", f"{kpis['diamonds_redeemed']:,}", "◇",
+                          diamond_note, diamond_direction)
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        overview_kpi_card("Agency earnings", f"${kpis['my_earnings_usd']:,.2f}", "$",
+                          earning_note, earning_direction)
+    with c5:
+        overview_kpi_card("Days streamed", f"{kpis['days_worked']:,}", "◷",
+                          days_note, days_direction)
+    with c6:
+        overview_kpi_card("Avg diamonds / broadcaster", f"{avg_dpb:,.1f}", "↗",
+                          f"Across {n_agencies} active sub-agencies" if is_owner else "Current roster average")
+
+    st.markdown("""
+    <div class="overview-section">
+      <h2>Automated insights</h2>
+      <p>Signals that may need attention this reporting period.</p>
+    </div>
+    """, unsafe_allow_html=True)
     retention = utils.retention_rate(df_current, df_previous) if not df_previous.empty else None
     at_risk_df = utils.at_risk_broadcasters(df_current, df_previous) if not df_previous.empty else df_current.iloc[0:0]
     dpd_df = utils.diamonds_per_day(df_current)
     avg_dpd = round(dpd_df["diamonds_per_day"].mean(), 1) if not dpd_df.empty else 0
 
     i1, i2, i3 = st.columns(3)
-    with i1: kpi_card("Retention rate", f"{retention}%" if retention is not None else "\u2014")
-    with i2: kpi_card("At-risk broadcasters", len(at_risk_df))
+    with i1:
+        st.markdown(f"""
+        <div class="insight-card">
+          <div class="insight-label">Retention health</div>
+          <div class="insight-value">{f'{retention}%' if retention is not None else '—'}</div>
+          <div class="insight-caption">Previously active broadcasters retained</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with i2:
+        st.markdown(f"""
+        <div class="insight-card">
+          <div class="insight-label">Requires attention</div>
+          <div class="insight-value">{len(at_risk_df)} at risk</div>
+          <div class="insight-caption">Active last period with no streaming days now</div>
+        </div>
+        """, unsafe_allow_html=True)
     with i3:
         if is_owner:
-            kpi_card("Attribution complete", f"{attribution_all['pct_assigned']}%")
+            st.markdown(f"""
+            <div class="insight-card">
+              <div class="insight-label">Roster attribution</div>
+              <div class="insight-value">{attribution_all['pct_assigned']}% complete</div>
+              <div class="insight-caption">Broadcasters assigned to a sub-agency</div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            kpi_card("Avg diamonds / day", f"{avg_dpd:,}")
+            st.markdown(f"""
+            <div class="insight-card">
+              <div class="insight-label">Daily efficiency</div>
+              <div class="insight-value">{avg_dpd:,}</div>
+              <div class="insight-caption">Average diamonds redeemed per streaming day</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     if len(at_risk_df) > 0:
         with st.expander(f"{len(at_risk_df)} broadcaster(s) earned diamonds last period, streamed 0 days this period"):
@@ -479,30 +812,71 @@ elif st.session_state.page == "Admin":
                 hide_index=True, width='stretch',
             )
 
-    st.markdown("#### Performance comparison")
-    if prev_kpis:
-        pct, direction = utils.compare_periods(kpis, prev_kpis, "diamonds_redeemed")
-        st.caption(f"{previous_period} vs {current_period} \u00b7 diamonds redeemed")
-        fig = go.Figure()
-        metrics = ["broadcasters", "active", "diamonds_redeemed", "days_worked"]
-        fig.add_trace(go.Bar(name=current_period, x=metrics, y=[kpis[m] for m in metrics],
-                              marker_color="#3F6B1E"))
-        fig.add_trace(go.Bar(name=previous_period, x=metrics, y=[prev_kpis[m] for m in metrics],
-                              marker_color="#C8C6BC"))
-        fig.update_layout(barmode="group", height=360,
-                           title=f"{'+' if pct >= 0 else ''}{pct}% change in diamonds redeemed")
-        st.plotly_chart(fig, width='stretch')
-    else:
-        st.info("Upload a second month to see the month-over-month comparison here.")
+    st.markdown("""
+    <div class="overview-section">
+      <h2>Performance trend</h2>
+      <p>Diamonds redeemed and active broadcaster movement over time.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    trend_periods = sorted(monthly_periods)[-6:]
+    if len(trend_periods) > 1:
+        trend_diamonds, trend_active = [], []
+        for trend_period in trend_periods:
+            trend_df = period_data(trend_period, "monthly")
+            trend_df = utils.filter_by_agency(trend_df, scope_agency)
+            trend_kpis = utils.compute_kpis(trend_df)
+            trend_diamonds.append(trend_kpis["diamonds_redeemed"])
+            trend_active.append(trend_kpis["active"])
 
-    st.markdown("#### Top performers this period")
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(go.Scatter(
+            name="Diamonds redeemed", x=trend_periods, y=trend_diamonds,
+            mode="lines+markers", line=dict(color="#3F6B1E", width=3),
+            marker=dict(size=8, color="#3F6B1E"), fill="tozeroy",
+            fillcolor="rgba(63,107,30,.09)", hovertemplate="%{x}<br>%{y:,.0f} diamonds<extra></extra>",
+        ), secondary_y=False)
+        fig.add_trace(go.Scatter(
+            name="Active broadcasters", x=trend_periods, y=trend_active,
+            mode="lines+markers", line=dict(color="#E2812C", width=2.5),
+            marker=dict(size=7, color="#E2812C"),
+            hovertemplate="%{x}<br>%{y:,.0f} active<extra></extra>",
+        ), secondary_y=True)
+        fig.update_layout(
+            height=390, margin=dict(l=20, r=20, t=50, b=20),
+            paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF", hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.04, x=0),
+            font=dict(family="Inter", color="#4C5548"),
+        )
+        fig.update_xaxes(showgrid=False, title=None)
+        fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
+        fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
+        with st.container(border=True):
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+    else:
+        st.info("Upload a second month to unlock the performance trend.")
+
+    st.markdown("""
+    <div class="overview-section">
+      <h2>Top performers</h2>
+      <p>Broadcasters leading the selected period by diamonds redeemed.</p>
+    </div>
+    """, unsafe_allow_html=True)
     top5 = utils.leaderboard(df_current, 5)
     if top5.empty:
-        st.caption("No data yet.")
+        st.info("No broadcaster performance data is available for this selection yet.")
     else:
         cols = ["broadcaster_name", "sub_agency", "diamonds_redeemed", "streaming_days"] if is_owner \
             else ["broadcaster_name", "diamonds_redeemed", "streaming_days"]
-        st.dataframe(top5[cols], hide_index=True, width='stretch')
+        with st.container(border=True):
+            st.dataframe(
+                top5[cols], hide_index=True, width='stretch',
+                column_config={
+                    "broadcaster_name": st.column_config.TextColumn("Broadcaster"),
+                    "sub_agency": st.column_config.TextColumn("Sub-agency"),
+                    "diamonds_redeemed": st.column_config.NumberColumn("Diamonds redeemed", format="%,d"),
+                    "streaming_days": st.column_config.NumberColumn("Days streamed", format="%d"),
+                },
+            )
 
 # ================================================================ STATISTICS
 elif st.session_state.page == "Statistics":
