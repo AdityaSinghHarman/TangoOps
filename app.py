@@ -863,7 +863,7 @@ elif st.session_state.page == "Admin":
         fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
-            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
         st.info("Upload a second month to unlock the performance trend.")
 
