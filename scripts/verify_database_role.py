@@ -81,9 +81,14 @@ def _update_local_secrets(database_url: str, secrets_path: Path = LOCAL_SECRETS_
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    clipboard_group = parser.add_mutually_exclusive_group()
+    clipboard_group.add_argument(
         "--copy-to-clipboard", action="store_true",
         help="Copy the verified restricted URL to the macOS clipboard without printing it.",
+    )
+    clipboard_group.add_argument(
+        "--copy-streamlit-block", action="store_true",
+        help="Copy a complete verified [postgres] TOML block for Streamlit Cloud.",
     )
     parser.add_argument(
         "--update-local-secrets", action="store_true",
@@ -133,11 +138,17 @@ def main():
     if args.update_local_secrets:
         _update_local_secrets(database_url)
         print("Local Streamlit Secrets now uses the verified restricted role.")
-    if args.copy_to_clipboard:
+    if args.copy_to_clipboard or args.copy_streamlit_block:
         if sys.platform != "darwin":
             raise SystemExit("Verification passed, but clipboard copy is currently supported only on macOS.")
-        subprocess.run(["pbcopy"], input=database_url.encode("utf-8"), check=True)
-        print("The verified restricted connection is now on your clipboard; its value was not displayed.")
+        clipboard_value = database_url
+        if args.copy_streamlit_block:
+            clipboard_value = f'[postgres]\nconnection_string = "{database_url}"\n'
+        subprocess.run(["pbcopy"], input=clipboard_value.encode("utf-8"), check=True)
+        if args.copy_streamlit_block:
+            print("A complete verified [postgres] block is on your clipboard; its value was not displayed.")
+        else:
+            print("The verified restricted connection is now on your clipboard; its value was not displayed.")
 
 
 if __name__ == "__main__":
