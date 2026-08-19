@@ -15,13 +15,29 @@ st.set_page_config(page_title="TangoOps – Agency Control", layout="wide", page
 # ---------------------------------------------------------------- styling ---
 st.markdown("""
 <style>
-:root{ --brand-green:#639922; --card-radius:16px; }
-.kpi-card{ background:#F5F6F5; border-radius:var(--card-radius); padding:20px 22px; margin-bottom:14px; }
-.kpi-card.dark{ background:#1A1C1A; color:white; }
-.kpi-label{ font-size:0.8rem; opacity:0.7; margin-bottom:6px; }
-.kpi-value{ font-size:1.7rem; font-weight:700; }
-section[data-testid="stSidebar"]{ background:#FFFFFF; }
-.stButton>button{ border-radius:10px; }
+:root{ --brand:#3F6B1E; --brand-soft:#EEF3E7; --ink:#1C1D1A; --card-radius:14px; --border:#E3E3DD; }
+
+.kpi-card{
+  background:#FFFFFF; border:1px solid var(--border); border-radius:var(--card-radius);
+  padding:20px 22px; margin-bottom:14px;
+  transition:box-shadow .15s ease, transform .15s ease;
+}
+.kpi-card:hover{ box-shadow:0 6px 20px rgba(28,29,26,0.07); transform:translateY(-1px); }
+.kpi-card.dark{ background:linear-gradient(135deg,#1C1D1A 0%,#2B2D26 100%); color:#fff; border:none; }
+.kpi-label{ font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; opacity:0.55; margin-bottom:8px; }
+.kpi-value{ font-size:1.75rem; font-weight:700; letter-spacing:-0.02em; }
+
+section[data-testid="stSidebar"] .stButton>button{
+  text-align:left; justify-content:flex-start; font-weight:500; border:1px solid transparent;
+}
+section[data-testid="stSidebar"] .stButton>button:hover{ background:#F6F6F3; border-color:var(--border); }
+section[data-testid="stSidebar"] .stButton>button[kind="primary"],
+section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
+  background:var(--brand-soft) !important; color:var(--brand) !important;
+  border:1px solid var(--brand-soft) !important; box-shadow:none !important; font-weight:600;
+}
+
+h1, h2, h3 { letter-spacing:-0.02em; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -364,9 +380,9 @@ elif st.session_state.page == "Admin":
         fig = go.Figure()
         metrics = ["broadcasters", "active", "diamonds_redeemed", "days_worked"]
         fig.add_trace(go.Bar(name=current_period, x=metrics, y=[kpis[m] for m in metrics],
-                              marker_color="#639922"))
+                              marker_color="#3F6B1E"))
         fig.add_trace(go.Bar(name=previous_period, x=metrics, y=[prev_kpis[m] for m in metrics],
-                              marker_color="#D9D9D9"))
+                              marker_color="#C8C6BC"))
         fig.update_layout(barmode="group", height=360,
                            title=f"{'+' if pct >= 0 else ''}{pct}% change in diamonds redeemed")
         st.plotly_chart(fig, width='stretch')

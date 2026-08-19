@@ -1,0 +1,24 @@
+[theme]
+base = "light"
+primaryColor = "#3F6B1E"
+backgroundColor = "#FAFAF8"
+secondaryBackgroundColor = "#F1F1EC"
+textColor = "#1C1D1A"
+borderColor = "#E3E3DD"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+baseFontSize = 15
+baseRadius = "0.75rem"
+buttonRadius = "0.625rem"
+showWidgetBorder = true
+showSidebarBorder = true
+dataframeBorderColor = "#E3E3DD"
+dataframeHeaderBackgroundColor = "#F1F1EC"
+metricValueFontWeight = 700
+chartCategoricalColors = ["#3F6B1E", "#8FA876", "#1C1D1A", "#B8B6AC", "#6B8E4E", "#D8D6CB"]
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F6F3"
+textColor = "#1C1D1A"
+borderColor = "#E3E3DD"
