@@ -95,14 +95,6 @@ CREATE TABLE IF NOT EXISTS assignments (
     PRIMARY KEY (business_id, profile_url)
 );
 
-CREATE TABLE IF NOT EXISTS direct_hires (
-    business_id TEXT,
-    profile_url TEXT,
-    broadcaster_name TEXT,
-    marked_at TIMESTAMP DEFAULT now(),
-    PRIMARY KEY (business_id, profile_url)
-);
-
 CREATE TABLE IF NOT EXISTS assignment_log (
     id SERIAL PRIMARY KEY,
     business_id TEXT,
@@ -319,11 +311,9 @@ def get_raw_uploads(business_id: str) -> pd.DataFrame:
 
 
 def save_period(clean_df: pd.DataFrame, period: str, period_type: str, business_id: str):
-    """Overwrite behavior: replaces any existing rows for this business+period+type."""
-    _execute(
-        "DELETE FROM raw_uploads WHERE business_id=%s AND period=%s AND period_type=%s",
-        (business_id, period, period_type),
-    )
+    """Add/update uploaded profiles while preserving other rows in the same period."""
+    if clean_df.empty:
+        return
     now = dt.datetime.utcnow()
     upload_id = f"{period_type}_{period}_{now.isoformat()}"
     rows = []
@@ -335,29 +325,6 @@ def save_period(clean_df: pd.DataFrame, period: str, period_type: str, business_
             float(r["streaming_days"]), float(r["streaming_hours"]), float(r["usd_earned"]),
             float(r["usd_redeemed"]), float(r["my_earnings_usd"]),
         ))
-    _execute_values(
-        f"INSERT INTO raw_uploads ({', '.join(RAW_COLS)}) VALUES %s", rows,
-    )
-
-
-def append_direct_hires(clean_df: pd.DataFrame, period: str, period_type: str, business_id: str):
-    """Add/update direct hires without deleting other rows in the reporting period."""
-    if clean_df.empty:
-        return
-    now = dt.datetime.utcnow()
-    upload_id = f"direct_{period_type}_{period}_{now.isoformat()}"
-    rows = []
-    direct_rows = []
-    for _, r in clean_df.iterrows():
-        rows.append((
-            business_id, upload_id, now, period, period_type, r["profile_url"],
-            r["broadcaster_name"], r["first_name"], r["last_name"], bool(r["is_new"]),
-            float(r["diamonds_earned"]), float(r["diamonds_redeemed"]), float(r["my_earnings_diamonds"]),
-            float(r["streaming_days"]), float(r["streaming_hours"]), float(r["usd_earned"]),
-            float(r["usd_redeemed"]), float(r["my_earnings_usd"]),
-        ))
-        direct_rows.append((business_id, r["profile_url"], r["broadcaster_name"], now))
-
     profiles = clean_df["profile_url"].astype(str).tolist()
     p = _pool()
     conn = p.getconn()
@@ -371,26 +338,12 @@ def append_direct_hires(clean_df: pd.DataFrame, period: str, period_type: str, b
             psycopg2.extras.execute_values(
                 cur, f"INSERT INTO raw_uploads ({', '.join(RAW_COLS)}) VALUES %s", rows,
             )
-            psycopg2.extras.execute_values(
-                cur,
-                "INSERT INTO direct_hires (business_id, profile_url, broadcaster_name, marked_at) VALUES %s "
-                "ON CONFLICT (business_id, profile_url) DO UPDATE SET "
-                "broadcaster_name=EXCLUDED.broadcaster_name, marked_at=EXCLUDED.marked_at",
-                direct_rows,
-            )
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         p.putconn(conn)
-
-
-def get_direct_hires(business_id: str) -> pd.DataFrame:
-    return _query(
-        "SELECT profile_url, broadcaster_name, marked_at FROM direct_hires WHERE business_id=%s",
-        (business_id,),
-    )
 
 
 def clear_period(period: str, period_type: str, business_id: str):

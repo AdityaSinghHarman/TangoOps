@@ -11,7 +11,8 @@ business on the same platform.
   upload the monthly/daily `referral_statistics` CSV, see the full
   broadcaster list, assign any broadcaster to any sub-agency directly from
   that list, manage sub-agencies, users, and data — all scoped only to ABC.
-  A new upload for a period replaces that period only; history is kept.
+  Additional uploads add new profiles and update matching profiles without
+  deleting other broadcasters already stored for that period.
 - **Sub-agency login** (e.g. Partner X under ABC) sees only their own
   assigned broadcasters — dashboard, list, and upload are all automatically
   locked to them, no separate screen or filter needed.
@@ -99,20 +100,19 @@ The same page can disable a login or reset its password at any time. A
 sub-agency login only ever sees its own broadcasters.
 
 ## Every month going forward
-Repeat Step 4.5 — upload the new file, tag it with the right period. The
-same period uploaded twice replaces the first; other periods are untouched,
+Repeat Step 4.5 — upload the new file, tag it with the right period. Additional
+files for the same period add new profiles and update matching profiles,
 which is what lets the dashboard show active/inactive trends and the
 insights (retention, at-risk, growth) across months. If a sub-agency user
 does their own upload, any of their previously-unassigned broadcasters in
 that file get attributed to their agency automatically.
 
-### Adding Agency direct hires to an existing month
-When a smaller file contains only broadcasters recruited directly by the
-Agency, open **Monthly report** and choose **Add Agency direct hires** before
-uploading it. This preserves every existing row in that month, adds or updates
-only the profiles in the smaller file, and classifies them as **Agency Direct**.
-Do not assign those profiles to a Sub-Agency. The Agency overview then compares
-direct hires with Sub-Agency hires and shows the commission-adjusted earnings mix.
+### Agency direct hires
+Upload the CSV normally. A broadcaster assigned to a Sub-Agency is classified
+as a Sub-Agency hire; a broadcaster without a Sub-Agency assignment is classified
+as **Agency Direct**. No special upload mode is required. The Agency overview
+compares direct hires with Sub-Agency hires and shows the commission-adjusted
+earnings mix.
 
 ## Known gap — true day-by-day charting
 The approved design's comparison chart plots a full month day-by-day.

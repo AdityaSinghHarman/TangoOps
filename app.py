@@ -678,11 +678,6 @@ def load_assignments(biz_id):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_direct_hires(biz_id):
-    return store.get_direct_hires(biz_id)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
 def load_agencies(biz_id):
     return store.get_agencies(biz_id)
 
@@ -695,7 +690,6 @@ def load_business_users(biz_id):
 def refresh_caches():
     load_all_raw.clear()
     load_assignments.clear()
-    load_direct_hires.clear()
     load_agencies.clear()
     load_all_users_df.clear()
     load_businesses_df.clear()
@@ -708,9 +702,7 @@ def period_data(period, period_type, force_agency=None):
     if raw.empty:
         return raw
     subset = raw[(raw["period"] == period) & (raw["period_type"] == period_type)].copy()
-    merged = utils.merge_assignments(
-        subset, load_assignments(business_id), load_direct_hires(business_id)
-    )
+    merged = utils.merge_assignments(subset, load_assignments(business_id))
     if force_agency:
         merged = utils.filter_by_agency(merged, force_agency)
     return merged
@@ -719,7 +711,7 @@ def period_data(period, period_type, force_agency=None):
 def agency_filter_widget(df, key):
     if not is_owner:
         return utils.filter_by_agency(df, user_agency), user_agency
-    agencies = ["All", "Agency Direct"] + load_agencies(business_id) + ["Needs assignment"]
+    agencies = ["All", "Agency Direct"] + load_agencies(business_id)
     choice = st.selectbox("Recruitment source", agencies, key=key)
     return utils.filter_by_agency(df, choice), choice
 
@@ -1102,18 +1094,6 @@ elif st.session_state.page == "Admin":
 
     if is_owner:
         attribution_all = utils.attribution_completeness(df_current_all)
-        if attribution_all["unassigned"] > 0:
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.warning(
-                    f"{attribution_all['unassigned']} broadcasters need assignment "
-                    f"({attribution_all['pct_assigned']}% of roster classified)."
-                )
-            with c2:
-                st.write("")
-                if st.button("Review & assign"):
-                    st.session_state.page = "Assign"
-                    st.rerun()
 
     kpis = utils.compute_kpis(df_current)
     prev_kpis = utils.compute_kpis(df_previous) if not df_previous.empty else {}
@@ -1199,9 +1179,7 @@ elif st.session_state.page == "Admin":
 
     if is_owner:
         direct_df = df_current_all[df_current_all["sub_agency"] == "Agency Direct"]
-        partner_df = df_current_all[
-            ~df_current_all["sub_agency"].isin(["Agency Direct", "Needs assignment"])
-        ]
+        partner_df = df_current_all[df_current_all["sub_agency"] != "Agency Direct"]
         direct_kpis = utils.compute_kpis(direct_df)
         partner_kpis = utils.compute_kpis(partner_df)
         commission_rates = {
@@ -1289,9 +1267,9 @@ elif st.session_state.page == "Admin":
         if is_owner:
             st.markdown(f"""
             <div class="insight-card">
-              <div class="insight-label">Recruitment source</div>
-              <div class="insight-value">{attribution_all['pct_assigned']}% complete</div>
-              <div class="insight-caption">Classified as Agency Direct or a Sub-Agency hire</div>
+              <div class="insight-label">Sub-Agency share</div>
+              <div class="insight-value">{attribution_all['pct_assigned']}%</div>
+              <div class="insight-caption">Roster assigned to third-party Sub-Agencies</div>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -1337,12 +1315,6 @@ elif st.session_state.page == "Admin":
             "Sub-Agency": risk_row.get("sub_agency", user_agency or "—"),
             "Reason": "Previously productive; no streaming days this month",
             "Recommended action": "Contact and agree a reactivation plan",
-        })
-    if is_owner and attribution_all["unassigned"] > 0:
-        follow_up_rows.append({
-            "Priority": "Medium", "Broadcaster": f"{attribution_all['unassigned']} profiles need assignment",
-            "Sub-Agency": "Needs assignment", "Reason": "Recruitment source is incomplete",
-            "Recommended action": "Review and assign broadcasters",
         })
     if not diamond_target["ahead"]:
         follow_up_rows.append({
@@ -1554,7 +1526,7 @@ elif st.session_state.page == "Broadcasters":
     search = st.text_input("Search broadcasters", key="bl_search")
     col1, col2 = st.columns(2)
     with col1:
-        agency_pick = st.selectbox("Recruitment source", ["All", "Agency Direct"] + load_agencies(business_id) + ["Needs assignment"], key="bl_agency") \
+        agency_pick = st.selectbox("Recruitment source", ["All", "Agency Direct"] + load_agencies(business_id), key="bl_agency") \
             if is_owner else "All"
     with col2:
         status_pick = st.multiselect("Status", sorted(df["status"].dropna().unique().tolist()), key="bl_status")
@@ -1611,12 +1583,7 @@ elif st.session_state.page == "BroadcasterDetail":
 
     assignments = load_assignments(business_id)
     a_row = assignments[assignments["profile_url"] == profile_url] if not assignments.empty else assignments
-    if not a_row.empty:
-        sub_agency = a_row.iloc[0]["sub_agency"]
-    else:
-        direct_urls = set(load_direct_hires(business_id)["profile_url"].astype(str)) \
-            if not load_direct_hires(business_id).empty else set()
-        sub_agency = "Agency Direct" if profile_url in direct_urls else "Needs assignment"
+    sub_agency = a_row.iloc[0]["sub_agency"] if not a_row.empty else "Agency Direct"
 
     if not is_owner and sub_agency != user_agency:
         st.error("You don't have access to this broadcaster.")
@@ -1676,7 +1643,7 @@ elif st.session_state.page == "SubAgencies":
         for _, row in agency_details.iterrows()
     }
     rows = []
-    for a in ["Agency Direct"] + agencies + ["Needs assignment"]:
+    for a in ["Agency Direct"] + agencies:
         sub = utils.filter_by_agency(df, a)
         sub_prev = utils.filter_by_agency(df_prev, a) if not df_prev.empty else pd.DataFrame()
         k = utils.compute_kpis(sub)
@@ -1715,11 +1682,11 @@ elif st.session_state.page == "SubAgencies":
                 "Commission due",
                 "—" if pd.isna(commission_value) else f"${commission_value:,.2f}",
                 help=("Redeemed diamonds ÷ 200 × commission percentage"
-                      if r["agency"] not in ("Agency Direct", "Needs assignment")
+                      if r["agency"] != "Agency Direct"
                       else "No Sub-Agency commission applies."),
             )
 
-            if r["agency"] not in ("Agency Direct", "Needs assignment"):
+            if r["agency"] != "Agency Direct":
                 rate_value = r["commission_pct"]
                 rate_text = "Not set" if pd.isna(rate_value) else f"{rate_value:g}%"
                 st.caption(
@@ -1764,8 +1731,8 @@ elif st.session_state.page == "Assign":
     ptype, period = label_map[choice]
     df = period_data(period, ptype)
 
-    only_unassigned = st.checkbox("Show only broadcasters needing assignment", value=True)
-    view = df[df["sub_agency"] == "Needs assignment"] if only_unassigned else df
+    only_unassigned = st.checkbox("Show only Agency Direct broadcasters", value=True)
+    view = df[df["sub_agency"] == "Agency Direct"] if only_unassigned else df
 
     assignment_columns = ["broadcaster_name", "profile_url", "sub_agency", "diamonds_redeemed"]
     st.dataframe(
@@ -1891,7 +1858,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     upload_form_version = int(st.session_state.get(upload_form_version_key, 0))
     upload_form_key = f"upload_{ptype}_{upload_form_version}"
     st.title(f"Upload {ptype} report")
-    st.caption("Uploading again for the same period replaces that period's numbers. Other periods are untouched.")
+    st.caption("Uploads add new broadcasters and update matching profiles. Existing profiles remain available.")
 
     default_period = dt.date.today().strftime("%Y-%m") if ptype == "monthly" else dt.date.today().isoformat()
     period_key = f"{upload_form_key}_period"
@@ -1906,22 +1873,6 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     valid_period = bool(re.match(pattern, period.strip()))
     if period and not valid_period:
         st.error("Period format looks off. Use YYYY-MM for monthly (e.g. 2026-08) or YYYY-MM-DD for daily.")
-
-    upload_mode = "Replace complete period"
-    if is_owner and ptype == "monthly":
-        upload_mode = st.radio(
-            "How should this file be saved?",
-            ["Replace complete period", "Add Agency direct hires"],
-            horizontal=True,
-            help=("Use replacement for the normal complete Tango export. Use direct hires only "
-                  "for a smaller file that must be added without removing existing Sub-Agency data."),
-            key=f"{upload_form_key}_mode",
-        )
-        if upload_mode == "Add Agency direct hires":
-            st.info(
-                "Existing rows for this month will be preserved. Broadcasters in this file will be "
-                "classified as **Agency Direct** and will not be assigned to a Sub-Agency."
-            )
 
     uploaded = st.file_uploader(
         "Tango referral_statistics CSV", type=["csv"], key=f"{upload_form_key}_file"
@@ -1938,36 +1889,20 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         history_urls = set(history["profile_url"]) if not history.empty else set()
         assignments_df = load_assignments(business_id)
         assigned_urls = set(assignments_df["profile_url"]) if not assignments_df.empty else set()
-        direct_hires_df = load_direct_hires(business_id)
-        existing_direct_urls = (set(direct_hires_df["profile_url"])
-                                if not direct_hires_df.empty else set())
-        direct_upload = upload_mode == "Add Agency direct hires"
-        assigned_in_direct_file = set(clean_df["profile_url"]) & assigned_urls
-        if direct_upload and assigned_in_direct_file:
-            st.error(
-                "This direct-hire file contains broadcaster profiles already assigned to a Sub-Agency. "
-                "Remove those rows before continuing."
-            )
-            st.stop()
 
         new_count = int((~clean_df["profile_url"].isin(history_urls)).sum())
         existing_count = len(clean_df) - new_count
         unassigned_count = int((~clean_df["profile_url"].isin(assigned_urls)).sum())
-        needs_assignment_count = int(
-            (~clean_df["profile_url"].isin(assigned_urls | existing_direct_urls)).sum()
-        )
 
         st.markdown("##### Review before saving")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Records", len(clean_df))
         c2.metric("Recognized", existing_count)
         c3.metric("New", new_count)
-        c4.metric("Agency Direct" if direct_upload else "Need assignment",
-                  len(clean_df) if direct_upload else needs_assignment_count)
-        if direct_upload:
-            st.caption(f"This adds direct hires to **{period}**. Existing rows in that month stay untouched.")
-        else:
-            st.caption(f"This replaces **{period}** only. Other periods stay untouched.")
+        c4.metric("Agency Direct" if is_owner else "Not yet assigned", unassigned_count)
+        st.caption(
+            f"This adds or updates profiles in **{period}**. Existing profiles not present in this file stay untouched."
+        )
         preview_columns = ["broadcaster_name", "profile_url", "diamonds_redeemed", "streaming_days"]
         st.dataframe(
             clean_df[preview_columns].head(10), hide_index=True, width='stretch',
@@ -1975,19 +1910,15 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         )
 
         if st.button("Confirm upload", type="primary", key=f"{upload_form_key}_confirm"):
-            if direct_upload:
-                store.append_direct_hires(clean_df, period.strip(), ptype, business_id)
-            else:
-                store.save_period(clean_df, period.strip(), ptype, business_id)
+            store.save_period(clean_df, period.strip(), ptype, business_id)
             if not is_owner:
                 unassigned_here = [u for u in clean_df["profile_url"] if u not in assigned_urls]
                 names_map = dict(zip(clean_df["profile_url"], clean_df["broadcaster_name"]))
                 store.assign_broadcasters(unassigned_here, names_map, user_agency, business_id, assigned_by=username)
             refresh_caches()
-            note = (f"Added {len(clean_df)} Agency direct hires to {period}."
-                    if direct_upload else f"Saved {len(clean_df)} broadcasters for {period} ({ptype}).")
-            if is_owner and not direct_upload and needs_assignment_count > 0:
-                note += f" {needs_assignment_count} still need assignment."
+            note = f"Saved {len(clean_df)} broadcasters for {period} ({ptype})."
+            if is_owner and unassigned_count > 0:
+                note += f" {unassigned_count} are classified as Agency Direct."
             st.session_state[upload_success_key] = note
             st.session_state[upload_form_version_key] = upload_form_version + 1
             st.rerun()
@@ -2097,7 +2028,7 @@ elif st.session_state.page == "DataManagement":
                             store.archive_period(p, ptype, business_id)
                             refresh_caches()
                             st.rerun()
-                    if b3.button("Replace", key=f"replace_{ptype}_{p}"):
+                    if b3.button("Add / update", key=f"replace_{ptype}_{p}"):
                         st.session_state[f"period_{ptype}"] = p
                         st.session_state.page = "UploadMonthly" if ptype == "monthly" else "UploadDaily"
                         st.rerun()

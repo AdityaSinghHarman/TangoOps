@@ -72,28 +72,18 @@ def load_tango_csv(filepath_or_buffer) -> pd.DataFrame:
     ]]
 
 
-def merge_assignments(stats_df: pd.DataFrame, assignments_df: pd.DataFrame,
-                      direct_hires_df: pd.DataFrame = None) -> pd.DataFrame:
+def merge_assignments(stats_df: pd.DataFrame, assignments_df: pd.DataFrame) -> pd.DataFrame:
     """Attach a permanent recruitment source using the broadcaster profile URL."""
     out = stats_df.copy()
-    direct_urls = (set(direct_hires_df["profile_url"].astype(str))
-                   if direct_hires_df is not None and not direct_hires_df.empty else set())
     if assignments_df is None or assignments_df.empty:
-        out["sub_agency"] = out["profile_url"].apply(
-            lambda url: "Agency Direct" if url in direct_urls else "Needs assignment"
-        )
+        out["sub_agency"] = "Agency Direct"
         return out
 
     a = assignments_df[["profile_url", "sub_agency"]].drop_duplicates(
         subset="profile_url", keep="last"
     )
     out = out.merge(a, on="profile_url", how="left")
-    out["sub_agency"] = out.apply(
-        lambda row: (row["sub_agency"] if pd.notna(row["sub_agency"])
-                     else "Agency Direct" if row["profile_url"] in direct_urls
-                     else "Needs assignment"),
-        axis=1,
-    )
+    out["sub_agency"] = out["sub_agency"].fillna("Agency Direct")
     return out
 
 
@@ -218,7 +208,7 @@ def attribution_completeness(df: pd.DataFrame) -> dict:
     total = df["profile_url"].nunique()
     if total == 0:
         return dict(total=0, assigned=0, unassigned=0, pct_assigned=0.0)
-    assigned = df[df["sub_agency"] != "Needs assignment"]["profile_url"].nunique()
+    assigned = df[df["sub_agency"] != "Agency Direct"]["profile_url"].nunique()
     unassigned = total - assigned
     return dict(total=total, assigned=assigned, unassigned=unassigned,
                 pct_assigned=round(assigned / total * 100, 1))
