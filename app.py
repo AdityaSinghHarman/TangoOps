@@ -6,7 +6,6 @@ import secrets as pysecrets
 import string
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit_authenticator as stauth
@@ -425,29 +424,6 @@ if not was_authenticated:
 
 auth_status = st.session_state.get("authentication_status")
 
-# Streamlit keeps browser fragments across sign-out/sign-in because the app is
-# a single-page session. Tenant names are not routing keys, so remove any stale
-# fragment on every run instead of allowing a previous agency name to remain in
-# the address bar after an identity change.
-components.html(
-    """
-    <script>
-      try {
-        const parentUrl = window.parent.location;
-        if (parentUrl.hash) {
-          window.parent.history.replaceState(
-            null, "", parentUrl.pathname + parentUrl.search
-          );
-        }
-      } catch (error) {
-        // URL cleanup is cosmetic; authentication remains enforced server-side.
-      }
-    </script>
-    """,
-    height=0,
-    width=0,
-)
-
 if auth_status is True and not was_authenticated:
     st.rerun()
 
@@ -526,6 +502,10 @@ allowed_pages_by_role = {
 # Reset navigation when the authenticated identity changes. This prevents a
 # sub-agency login from inheriting an owner-only page after sign-out/sign-in.
 if st.session_state.get("_navigation_username") != username:
+    # A Markdown heading clicked in a previous session can leave its anchor in
+    # the browser URL. Sending a native page-info update rebuilds the URL from
+    # the app's query string and clears that stale fragment in the top window.
+    st.query_params.clear()
     st.session_state.page = default_page
     st.session_state.selected_profile_url = None
     st.session_state._navigation_username = username
@@ -951,7 +931,14 @@ if st.session_state.page == "Businesses":
                 owners_only = owners_df[owners_df["role"] == "owner"] if not owners_df.empty else owners_df
                 owner_count = len(owners_only)
                 agency_count = len(store.get_agencies(bid))
-                c1.markdown(f"### {b['business_name']}")
+                # Use HTML instead of a Markdown heading so agency names never
+                # become clickable URL anchors that can leak into another login.
+                safe_directory_name = html.escape(str(b["business_name"]))
+                c1.markdown(
+                    f'<div style="font-size:1.45rem;font-weight:700;line-height:1.3;'
+                    f'letter-spacing:-.02em;margin-bottom:.3rem">{safe_directory_name}</div>',
+                    unsafe_allow_html=True,
+                )
                 c1.markdown(f"`{bid}` &nbsp; · &nbsp; {owner_count} owner account(s) "
                             f"&nbsp; · &nbsp; {agency_count} Sub-Agencies")
                 status_class = "active" if b["status"] == "Active" else "disabled"
