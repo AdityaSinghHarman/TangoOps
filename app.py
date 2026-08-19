@@ -765,26 +765,31 @@ if st.session_state.page == "Businesses":
         st.error("Platform admin access only.")
         st.stop()
     st.markdown('<div class="platform-admin-page"></div>', unsafe_allow_html=True)
-    st.markdown("""
+    database_posture = store.get_database_role_posture()
+    database_is_restricted = not any(
+        database_posture[key]
+        for key in ("superuser", "create_database", "create_role", "replication", "bypass_rls")
+    )
+    database_security_label = (
+        "● Restricted database access" if database_is_restricted
+        else "● Elevated database access"
+    )
+    st.markdown(f"""
     <div class="admin-hero">
       <div>
         <div class="admin-kicker">Platform administration</div>
         <h1>Platform overview</h1>
         <p>Monitor platform health and manage isolated agency accounts, owners, and access.</p>
       </div>
-      <div class="admin-secure-pill">● Platform admin access</div>
+      <div class="admin-secure-pill">{database_security_label}</div>
     </div>
     """, unsafe_allow_html=True)
 
-    database_posture = store.get_database_role_posture()
-    database_is_restricted = not any(
-        database_posture[key]
-        for key in ("superuser", "create_database", "create_role", "replication", "bypass_rls")
-    )
     if database_is_restricted:
         st.success("Database security: Restricted runtime access is active. Administrator privileges are disabled.")
     else:
         st.warning("Database security: The application connection still has elevated database privileges.")
+    st.caption("Security release: restricted-db-v1")
 
     businesses = store.get_businesses()
     all_users = load_all_users_df()
