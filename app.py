@@ -776,6 +776,16 @@ if st.session_state.page == "Businesses":
     </div>
     """, unsafe_allow_html=True)
 
+    database_posture = store.get_database_role_posture()
+    database_is_restricted = not any(
+        database_posture[key]
+        for key in ("superuser", "create_database", "create_role", "replication", "bypass_rls")
+    )
+    if database_is_restricted:
+        st.success("Database security: Restricted runtime access is active. Administrator privileges are disabled.")
+    else:
+        st.warning("Database security: The application connection still has elevated database privileges.")
+
     businesses = store.get_businesses()
     all_users = load_all_users_df()
     total_agencies = len(businesses)
