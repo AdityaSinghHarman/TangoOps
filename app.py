@@ -885,7 +885,7 @@ elif st.session_state.page == "Admin":
                 column_config={
                     "broadcaster_name": st.column_config.TextColumn("Broadcaster"),
                     "sub_agency": st.column_config.TextColumn("Sub-agency"),
-                    "diamonds_redeemed": st.column_config.NumberColumn("Diamonds redeemed", format="%,d"),
+                    "diamonds_redeemed": st.column_config.NumberColumn("Diamonds redeemed", format="localized"),
                     "streaming_days": st.column_config.NumberColumn("Days streamed", format="%d"),
                 },
             )
