@@ -276,7 +276,7 @@ def overview_kpi_card(label, value, icon, note="", direction=""):
 
 TABLE_COLUMN_CONFIG = {
     "broadcaster_name": st.column_config.TextColumn("Broadcaster", width="medium"),
-    "sub_agency": st.column_config.TextColumn("Sub-agency", width="medium"),
+    "sub_agency": st.column_config.TextColumn("Sub-Agency", width="medium"),
     "status": st.column_config.TextColumn("Status", width="small"),
     "streaming_days": st.column_config.NumberColumn("Days streamed", format="%d", width="small"),
     "streaming_hours": st.column_config.NumberColumn("Hours streamed", format="%.1f", width="small"),
@@ -500,8 +500,8 @@ with st.sidebar:
             st.markdown('<div class="sidebar-group-head"><span>Manage</span></div>', unsafe_allow_html=True)
             nav_button("Broadcasters", "Broadcasters", ":material/groups:")
             nav_button("Assign broadcasters", "Assign", ":material/person_add:")
-            nav_button("Sub-agency management", "SubAgencies", ":material/account_tree:")
-            nav_button("Create sub-agency", "CreateAgency", ":material/domain_add:")
+            nav_button("Sub-Agency Management", "SubAgencies", ":material/account_tree:")
+            nav_button("Create Sub-Agency", "CreateAgency", ":material/domain_add:")
 
         current_month_key = dt.date.today().strftime("%Y-%m")
         monthly_uploads = store.list_periods("monthly", business_id)
@@ -553,7 +553,7 @@ with st.sidebar:
           <div class="owner-workspace-avatar">{sub_initials}</div>
           <div class="owner-workspace-copy">
             <div class="owner-workspace-name">{safe_agency_name}</div>
-            <div class="owner-workspace-role">Sub-agency · {safe_business_name}</div>
+            <div class="owner-workspace-role">Sub-Agency · {safe_business_name}</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -582,7 +582,7 @@ with st.sidebar:
               <div class="owner-workspace-avatar">{sub_initials}</div>
               <div class="sidebar-profile-copy">
                 <div class="sidebar-profile-name">{safe_display_name}</div>
-                <div class="sidebar-profile-role">{safe_agency_name} · Sub-agency</div>
+                <div class="sidebar-profile-role">{safe_agency_name} · Sub-Agency</div>
               </div>
             </div>
             """, unsafe_allow_html=True)
@@ -655,7 +655,7 @@ def agency_filter_widget(df, key):
     if not is_owner:
         return utils.filter_by_agency(df, user_agency), user_agency
     agencies = ["All"] + load_agencies(business_id) + ["Unassigned"]
-    choice = st.selectbox("Sub-agency", agencies, key=key)
+    choice = st.selectbox("Sub-Agency", agencies, key=key)
     return utils.filter_by_agency(df, choice), choice
 
 
@@ -699,7 +699,7 @@ if st.session_state.page == "Businesses":
     with m3:
         kpi_card("Owner accounts", f"{total_owners:,}")
     with m4:
-        kpi_card("Sub-agencies", f"{total_sub_agencies:,}")
+        kpi_card("Sub-Agencies", f"{total_sub_agencies:,}")
 
     create_tab = st.expander("＋ Create a new agency", expanded=False)
     directory_tab = st.container()
@@ -788,7 +788,7 @@ if st.session_state.page == "Businesses":
                 agency_count = len(store.get_agencies(bid))
                 c1.markdown(f"### {b['business_name']}")
                 c1.markdown(f"`{bid}` &nbsp; · &nbsp; {owner_count} owner account(s) "
-                            f"&nbsp; · &nbsp; {agency_count} sub-agencies")
+                            f"&nbsp; · &nbsp; {agency_count} Sub-Agencies")
                 status_class = "active" if b["status"] == "Active" else "disabled"
                 c1.markdown(f'<span class="agency-status {status_class}">{b["status"]}</span>',
                             unsafe_allow_html=True)
@@ -902,7 +902,7 @@ elif st.session_state.page == "Admin":
     st.markdown(f"""
     <div class="overview-hero">
       <div>
-        <div class="overview-eyebrow">{'Agency owner' if is_owner else 'Sub-agency workspace'}</div>
+        <div class="overview-eyebrow">{'Agency owner' if is_owner else 'Sub-Agency workspace'}</div>
         <h1>{overview_title}</h1>
         <p>{overview_subtitle}</p>
       </div>
@@ -1003,7 +1003,7 @@ elif st.session_state.page == "Admin":
                           days_note, days_direction)
     with c6:
         overview_kpi_card("Avg diamonds / broadcaster", f"{avg_dpb:,.1f}", "↗",
-                          f"Across {n_agencies} active sub-agencies" if is_owner else "Current roster average")
+                          f"Across {n_agencies} active Sub-Agencies" if is_owner else "Current roster average")
 
     st.markdown("""
     <div class="overview-section">
@@ -1039,7 +1039,7 @@ elif st.session_state.page == "Admin":
             <div class="insight-card">
               <div class="insight-label">Roster attribution</div>
               <div class="insight-value">{attribution_all['pct_assigned']}% complete</div>
-              <div class="insight-caption">Broadcasters assigned to a sub-agency</div>
+              <div class="insight-caption">Broadcasters assigned to a Sub-Agency</div>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -1180,7 +1180,7 @@ elif st.session_state.page == "Broadcasters":
     search = st.text_input("Search broadcasters", key="bl_search")
     col1, col2 = st.columns(2)
     with col1:
-        agency_pick = st.selectbox("Sub-agency", ["All"] + load_agencies(business_id) + ["Unassigned"], key="bl_agency") \
+        agency_pick = st.selectbox("Sub-Agency", ["All"] + load_agencies(business_id) + ["Unassigned"], key="bl_agency") \
             if is_owner else "All"
     with col2:
         status_pick = st.multiselect("Status", sorted(df["status"].dropna().unique().tolist()), key="bl_status")
@@ -1280,7 +1280,7 @@ elif st.session_state.page == "SubAgencies":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("Sub-agency management")
+    st.title("Sub-Agency Management")
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
@@ -1336,7 +1336,7 @@ elif st.session_state.page == "SubAgencies":
                 "Commission due",
                 "—" if pd.isna(commission_value) else f"${commission_value:,.2f}",
                 help=("Redeemed diamonds ÷ 200 × commission percentage" if r["agency"] != "Unassigned"
-                      else "Unassigned broadcasters do not have a sub-agency commission."),
+                      else "Unassigned broadcasters do not have a Sub-Agency commission."),
             )
 
             if r["agency"] != "Unassigned":
@@ -1369,7 +1369,7 @@ elif st.session_state.page == "Assign":
         st.error("Owner access only.")
         st.stop()
     st.title("Assign broadcasters")
-    st.caption("Pick a month already uploaded, then assign broadcasters to a sub-agency.")
+    st.caption("Pick a month already uploaded, then assign broadcasters to a Sub-Agency.")
 
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     daily_periods = sorted(store.list_periods("daily", business_id), reverse=True)
@@ -1400,9 +1400,9 @@ elif st.session_state.page == "Assign":
     selected = st.multiselect("Pick broadcasters (by name)", options, format_func=lambda u: labels.get(u, u))
     agencies = load_agencies(business_id)
     if not agencies:
-        st.info("No sub-agencies yet \u2014 add one first under **Create sub-agency**.")
+        st.info("No Sub-Agencies yet \u2014 add one first under **Create Sub-Agency**.")
     else:
-        target_agency = st.selectbox("Sub-agency", agencies)
+        target_agency = st.selectbox("Sub-Agency", agencies)
         if st.button("\u2714 Assign selected", type="primary", disabled=not selected):
             store.assign_broadcasters(selected, labels, target_agency, business_id, assigned_by=username)
             refresh_caches()
@@ -1414,7 +1414,7 @@ elif st.session_state.page == "CreateAgency":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("Create sub-agency")
+    st.title("Create Sub-Agency")
 
     name = st.text_input("Agency name (e.g. Partner X)", key="ca_name")
     contact = st.text_input("Contact person", key="ca_contact")
@@ -1422,25 +1422,24 @@ elif st.session_state.page == "CreateAgency":
     commission_pct = st.number_input(
         "Commission percentage", min_value=1.0, max_value=20.0, value=5.0,
         step=0.1, format="%.2f", key="ca_commission_pct",
-        help="The percentage of this sub-agency's redeemed diamond value that they receive.",
+        help="The percentage of this Sub-Agency's redeemed diamond value that they receive.",
     )
     example_gross, example_commission = calculate_sub_agency_earnings(20_000, commission_pct)
     st.info(
-        f"Calculation example: **20,000 diamonds ÷ {DIAMONDS_PER_USD} = ${example_gross:,.2f}** "
-        f"redeemed value. At **{commission_pct:g}%**, the sub-agency earns "
-        f"**${example_commission:,.2f}**."
+        f"Calculation example: **20,000 diamonds ÷ {DIAMONDS_PER_USD} = USD {example_gross:,.2f}** "
+        f"redeemed value. At **{commission_pct:g}%**, the Sub-Agency earns "
+        f"**USD {example_commission:,.2f}**."
     )
 
     st.markdown("###### Login access")
     make_login = st.checkbox("Also create a login for this partner", value=True, key="ca_make_login")
     login_email, password = "", ""
     if make_login:
-        c1, c2 = st.columns([2, 1])
+        c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
         with c1:
             login_email = st.text_input("Login email", key="ca_email")
         with c2:
-            st.write("")
-            if st.button("Generate password"):
+            if st.button("Generate password", width="stretch"):
                 alphabet = string.ascii_letters + string.digits
                 st.session_state.ca_password = "".join(pysecrets.choice(alphabet) for _ in range(10))
         password = st.text_input("Password", key="ca_password")
@@ -1448,9 +1447,9 @@ elif st.session_state.page == "CreateAgency":
     status = st.selectbox("Status", ["Active", "Inactive"], key="ca_status")
     notes = st.text_area("Notes", key="ca_notes")
 
-    if st.button("Create sub-agency", type="primary", disabled=not name.strip()):
+    if st.button("Create Sub-Agency", type="primary", disabled=not name.strip()):
         if name.strip() in load_agencies(business_id):
-            st.error("A sub-agency with this name already exists. Update its commission under Sub-agency management.")
+            st.error("A Sub-Agency with this name already exists. Update its commission under Sub-Agency Management.")
             st.stop()
         if make_login:
             if not is_valid_email(login_email):
@@ -1464,7 +1463,7 @@ elif st.session_state.page == "CreateAgency":
                 st.stop()
 
         store.add_agency(name.strip(), business_id, commission_pct)
-        msg = f"Created sub-agency {name.strip()} with a {commission_pct:g}% commission."
+        msg = f"Created Sub-Agency {name.strip()} with a {commission_pct:g}% commission."
         if make_login:
             ok, m = store.create_user(
                 login_email.strip(), contact.strip() or name.strip(),
@@ -1478,10 +1477,10 @@ elif st.session_state.page == "CreateAgency":
         refresh_caches()
         st.success(msg)
 
-    st.markdown("##### Existing sub-agencies")
+    st.markdown("##### Existing Sub-Agencies")
     existing_agencies = store.get_agency_details(business_id)
     if existing_agencies.empty:
-        st.caption("No sub-agencies created yet.")
+        st.caption("No Sub-Agencies created yet.")
     else:
         for _, agency_row in existing_agencies.iterrows():
             existing_rate = agency_row["commission_pct"]
@@ -1572,7 +1571,7 @@ elif st.session_state.page == "UserAccess":
         new_agency = None
         if new_role == "sub_agency":
             agencies = load_agencies(business_id)
-            new_agency = st.selectbox("Sub-agency", agencies, key="ua_agency") if agencies else None
+            new_agency = st.selectbox("Sub-Agency", agencies, key="ua_agency") if agencies else None
         new_password = st.text_input("Password", key="ua_password")
 
     if st.button("Create user", type="primary"):
@@ -1581,7 +1580,7 @@ elif st.session_state.page == "UserAccess":
         elif not new_password.strip():
             st.error("Password is required.")
         elif new_role == "sub_agency" and not new_agency:
-            st.error("Create a sub-agency first, then assign this login to it.")
+            st.error("Create a Sub-Agency first, then assign this login to it.")
         else:
             ok, msg = store.create_user(
                 new_email.strip(), new_name.strip() or new_email.strip(),
@@ -1674,7 +1673,7 @@ elif st.session_state.page == "DataManagement":
     st.markdown("---")
     with st.container(border=True):
         st.markdown("##### :red[Danger zone]")
-        st.caption("Permanently deletes a period's numbers. Sub-agency assignments are not affected.")
+        st.caption("Permanently deletes a period's numbers. Sub-Agency assignments are not affected.")
         target = st.selectbox("Period to clear", all_periods, key="dm_clear_target") if all_periods else None
         confirm = st.checkbox(f"I understand this deletes {ptype} data for the selected period", key="dm_confirm")
         if st.button("Clear this period", type="primary", disabled=not (confirm and target)):
