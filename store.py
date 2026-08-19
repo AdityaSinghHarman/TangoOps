@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS archived_periods (
     archived_at TIMESTAMP,
     PRIMARY KEY (business_id, period, period_type)
 );
+
+CREATE TABLE IF NOT EXISTS profiles (
+    username TEXT PRIMARY KEY,
+    display_name TEXT,
+    avatar_base64 TEXT,
+    updated_at TIMESTAMP DEFAULT now()
+);
 """
 
 
@@ -167,6 +174,10 @@ def create_business(name: str) -> str:
 
 def set_business_status(business_id: str, status: str):
     _execute("UPDATE businesses SET status=%s WHERE business_id=%s", (status, business_id))
+
+
+def update_business_name(business_id: str, new_name: str):
+    _execute("UPDATE businesses SET business_name=%s WHERE business_id=%s", (new_name, business_id))
 
 
 # ---------------- users (global table, business_id-tagged) ----------------
@@ -353,4 +364,23 @@ def unarchive_period(period: str, period_type: str, business_id: str):
     _execute(
         "DELETE FROM archived_periods WHERE business_id=%s AND period=%s AND period_type=%s",
         (business_id, period, period_type),
+    )
+
+
+# ---------------- profiles (display name + avatar, independent of login) ----------------
+
+def get_profile(username: str):
+    df = _query("SELECT username, display_name, avatar_base64 FROM profiles WHERE username=%s", (username,))
+    return None if df.empty else df.iloc[0].to_dict()
+
+
+def upsert_profile(username: str, display_name: str = None, avatar_base64: str = None):
+    existing = get_profile(username)
+    new_display_name = display_name if display_name is not None else (existing["display_name"] if existing else None)
+    new_avatar = avatar_base64 if avatar_base64 is not None else (existing["avatar_base64"] if existing else None)
+    _execute(
+        "INSERT INTO profiles (username, display_name, avatar_base64, updated_at) VALUES (%s,%s,%s, now()) "
+        "ON CONFLICT (username) DO UPDATE SET display_name=EXCLUDED.display_name, "
+        "avatar_base64=EXCLUDED.avatar_base64, updated_at=now()",
+        (username, new_display_name, new_avatar),
     )
