@@ -1,5 +1,6 @@
 import datetime as dt
 import re
+import base64
 import secrets as pysecrets
 import string
 import pandas as pd
@@ -66,45 +67,24 @@ def load_businesses_df():
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
-
-    creds = {
-        "usernames": {
-            boot["username"]: {
-                "name": boot["name"],
-                "email": boot["username"],
-                "password": boot_hash,
-            }
-        }
-    }
-
+    creds = {"usernames": {
+        boot["username"]: {"name": boot["name"], "email": boot["username"], "password": boot_hash}
+    }}
     users_df = load_all_users_df()
     businesses_df = load_businesses_df()
-
     active_business_ids = set(
         businesses_df[businesses_df["status"] == "Active"]["business_id"]
     ) if not businesses_df.empty else set()
-
     if not users_df.empty:
         active = users_df[
-            (users_df["status"] == "Active")
-            & (users_df["business_id"].isin(active_business_ids))
+            (users_df["status"] == "Active") & (users_df["business_id"].isin(active_business_ids))
         ]
-
         for _, row in active.iterrows():
             creds["usernames"][row["username"]] = {
-                "name": row["name"],
-                "email": row["username"],
-                "password": row["password_hash"],
+                "name": row["name"], "email": row["username"], "password": row["password_hash"]
             }
-
-    # Ensure Streamlit Secrets always controls the Platform Admin login.
-    creds["usernames"][boot["username"]] = {
-        "name": boot["name"],
-        "email": boot["username"],
-        "password": boot_hash,
-    }
-
     return creds, boot["username"]
+
 
 credentials, bootstrap_username = build_credentials()
 authenticator = stauth.Authenticate(
@@ -127,6 +107,17 @@ elif auth_status is None:
 
 display_name = st.session_state.get("name", "")
 username = st.session_state.get("username", "")
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_profile(uname):
+    return store.get_profile(uname)
+
+
+_profile = load_profile(username)
+if _profile and _profile.get("display_name"):
+    display_name = _profile["display_name"]
+avatar_b64 = _profile.get("avatar_base64") if _profile else None
 
 
 def current_user_context():
@@ -175,7 +166,7 @@ with st.sidebar:
         st.caption(business_name)
     st.write("")
     if is_platform_admin:
-        nav_button("Businesses", "Businesses")
+        nav_button("Agencies", "Businesses")
     elif is_owner:
         nav_button("Admin", "Admin")
         nav_button("Statistics", "Statistics")
@@ -196,6 +187,13 @@ with st.sidebar:
         nav_button("My broadcasters", "Broadcasters")
         nav_button("Upload report", "UploadMonthly")
     st.write("")
+    nav_button("My profile", "MyProfile")
+    if avatar_b64:
+        st.markdown(
+            f'<img src="data:image/png;base64,{avatar_b64}" '
+            f'style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-bottom:6px;">',
+            unsafe_allow_html=True,
+        )
     st.caption(f"Signed in as **{display_name}**")
     authenticator.logout("Sign out", "sidebar")
 
@@ -227,6 +225,7 @@ def refresh_caches():
     load_all_users_df.clear()
     load_businesses_df.clear()
     load_business_users.clear()
+    load_profile.clear()
 
 
 def period_data(period, period_type, force_agency=None):
@@ -260,12 +259,12 @@ if st.session_state.page == "Businesses":
     if not is_platform_admin:
         st.error("Platform admin access only.")
         st.stop()
-    st.title("Businesses")
-    st.caption("Each business below gets its own completely separate broadcasters, sub-agencies, and logins.")
+    st.title("Agencies")
+    st.caption("Each agency below gets its own completely separate broadcasters, sub-agencies, and logins.")
 
-    st.markdown("##### Create business")
-    biz_name = st.text_input("Business name", key="biz_name")
-    st.markdown("###### Owner login for this business")
+    st.markdown("##### Create agency")
+    biz_name = st.text_input("Agency name", key="biz_name")
+    st.markdown("###### Owner login for this agency")
     c1, c2 = st.columns(2)
     with c1:
         owner_email = st.text_input("Owner email", key="biz_owner_email")
@@ -277,7 +276,7 @@ if st.session_state.page == "Businesses":
             st.session_state.biz_owner_password = "".join(pysecrets.choice(alphabet) for _ in range(10))
         owner_password = st.text_input("Owner password", key="biz_owner_password")
 
-    if st.button("Create business", type="primary", disabled=not biz_name.strip()):
+    if st.button("Create agency", type="primary", disabled=not biz_name.strip()):
         if not is_valid_email(owner_email):
             st.error("Enter a valid owner email address.")
             st.stop()
@@ -296,31 +295,117 @@ if st.session_state.page == "Businesses":
         st.toast(f"Created {biz_name.strip()} with owner login {owner_email.strip()}.", icon="\u2705")
         st.rerun()
 
-    st.markdown("##### Existing businesses")
+    st.markdown("##### Existing agencies")
     businesses = store.get_businesses()
     if businesses.empty:
-        st.caption("No businesses yet.")
+        st.caption("No agencies yet.")
     else:
         for _, b in businesses.iterrows():
+            bid = b["business_id"]
             with st.container(border=True):
                 c1, c2 = st.columns([3, 1])
-                owners_df = store.get_users(b["business_id"])
-                owner_count = int((owners_df["role"] == "owner").sum()) if not owners_df.empty else 0
-                agency_count = len(store.get_agencies(b["business_id"]))
-                c1.markdown(f"**{b['business_name']}**  \n`{b['business_id']}` \u00b7 "
+                owners_df = store.get_users(bid)
+                owners_only = owners_df[owners_df["role"] == "owner"] if not owners_df.empty else owners_df
+                owner_count = len(owners_only)
+                agency_count = len(store.get_agencies(bid))
+                c1.markdown(f"**{b['business_name']}**  \n`{bid}` \u00b7 "
                             f"{owner_count} owner login(s) \u00b7 {agency_count} sub-agencies \u00b7 "
                             f"status: {b['status']}")
                 with c2:
-                    if b["status"] == "Active":
-                        if st.button("Disable", key=f"disbiz_{b['business_id']}"):
-                            store.set_business_status(b["business_id"], "Disabled")
-                            refresh_caches()
-                            st.rerun()
+                    b1, b2 = st.columns(2)
+                    if b1.button("Edit", key=f"editbiz_{bid}"):
+                        st.session_state["editing_biz"] = None if st.session_state.get("editing_biz") == bid else bid
+                        st.rerun()
+                    with b2:
+                        if b["status"] == "Active":
+                            if st.button("Disable", key=f"disbiz_{bid}"):
+                                store.set_business_status(bid, "Disabled")
+                                refresh_caches()
+                                st.rerun()
+                        else:
+                            if st.button("Enable", key=f"enbiz_{bid}"):
+                                store.set_business_status(bid, "Active")
+                                refresh_caches()
+                                st.rerun()
+
+                if st.session_state.get("editing_biz") == bid:
+                    st.markdown("---")
+                    new_name = st.text_input("Agency name", value=b["business_name"], key=f"rename_{bid}")
+                    if st.button("Save name", key=f"savename_{bid}"):
+                        store.update_business_name(bid, new_name.strip() or b["business_name"])
+                        refresh_caches()
+                        st.toast("Agency name updated.", icon="\u2705")
+                        st.rerun()
+
+                    st.markdown("###### Owner logins \u2014 reset a forgotten password")
+                    if owners_only.empty:
+                        st.caption("No owner login exists for this agency yet.")
                     else:
-                        if st.button("Enable", key=f"enbiz_{b['business_id']}"):
-                            store.set_business_status(b["business_id"], "Active")
-                            refresh_caches()
-                            st.rerun()
+                        for _, ow in owners_only.iterrows():
+                            oc1, oc2 = st.columns([2, 1])
+                            oc1.markdown(f"{ow['name']}  \n`{ow['username']}`")
+                            with oc2:
+                                with st.popover("Reset password"):
+                                    newpw = st.text_input("New password", key=f"bizpw_{ow['username']}")
+                                    if st.button("Save", key=f"bizpwsave_{ow['username']}"):
+                                        if newpw.strip():
+                                            store.reset_user_password(ow["username"], newpw.strip())
+                                            st.success("Password updated.")
+                                        else:
+                                            st.error("Enter a new password.")
+
+# ================================================================ MY PROFILE
+elif st.session_state.page == "MyProfile":
+    st.title("My profile")
+    st.caption("Visible only to you \u2014 change your display name or profile picture any time.")
+
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if avatar_b64:
+            st.markdown(
+                f'<img src="data:image/png;base64,{avatar_b64}" '
+                f'style="width:96px;height:96px;border-radius:50%;object-fit:cover;">',
+                unsafe_allow_html=True,
+            )
+        else:
+            initials = "".join([p[0].upper() for p in display_name.split()[:2]]) or "?"
+            st.markdown(
+                f'<div style="width:96px;height:96px;border-radius:50%;background:#EEF3E7;'
+                f'color:#3F6B1E;display:flex;align-items:center;justify-content:center;'
+                f'font-size:32px;font-weight:700;">{initials}</div>',
+                unsafe_allow_html=True,
+            )
+    with col2:
+        st.markdown(f"**{display_name}**")
+        st.caption(f"{username} \u00b7 {user_role.replace('_', ' ')}")
+
+    st.markdown("##### Display name")
+    new_display_name = st.text_input("Name", value=display_name, key="profile_name")
+    if st.button("Save name", type="primary", disabled=not new_display_name.strip()):
+        store.upsert_profile(username, display_name=new_display_name.strip())
+        refresh_caches()
+        st.toast("Name updated.", icon="\u2705")
+        st.rerun()
+
+    st.markdown("##### Profile picture")
+    pic = st.file_uploader("Upload a picture (PNG or JPG, under 1.5 MB)", type=["png", "jpg", "jpeg"], key="profile_pic")
+    if pic is not None:
+        if pic.size > 1_500_000:
+            st.error("That image is too large \u2014 please use a picture under 1.5 MB.")
+        else:
+            encoded = base64.b64encode(pic.read()).decode("utf-8")
+            if st.button("Save picture", type="primary"):
+                store.upsert_profile(username, avatar_base64=encoded)
+                refresh_caches()
+                st.toast("Profile picture updated.", icon="\u2705")
+                st.rerun()
+
+    if avatar_b64:
+        if st.button("Remove current picture"):
+            store.upsert_profile(username, avatar_base64="")
+            refresh_caches()
+            st.toast("Profile picture removed.", icon="\u2705")
+            st.rerun()
 
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":
@@ -824,7 +909,7 @@ elif st.session_state.page == "UserAccess":
     st.markdown("##### Existing users")
     users_df = load_business_users(business_id)
     if users_df.empty:
-        st.caption("No additional users yet \u2014 you're the only login for this business.")
+        st.caption("No additional users yet \u2014 you're the only login for this agency.")
     else:
         for _, r in users_df.iterrows():
             with st.container(border=True):
