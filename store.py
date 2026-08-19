@@ -4,7 +4,7 @@ Every table except `businesses` and `users` carries a business_id column,
 which is how each business's data stays completely walled off from every
 other business sharing this same app.
 
-Tables (auto-created on first run — nothing to set up by hand):
+Tables (created through the administrator-only migration command):
   businesses        one row per top-level business (ABC, DEF, ...)
   users             every login on the platform, tagged with role + business_id
   agencies          sub-agency names, per business
@@ -155,6 +155,50 @@ BEGIN
 END $$;
 """
 
+RUNTIME_TABLES = (
+    "businesses", "users", "agencies", "raw_uploads", "assignments",
+    "assignment_log", "archived_periods", "profiles", "security_audit",
+)
+
+RUNTIME_SEQUENCES = (
+    "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq",
+)
+
+
+def _verify_runtime_permissions(conn):
+    """Fail safely when the configured role lacks TangoOps runtime access."""
+    missing = []
+    with conn.cursor() as cur:
+        for table in RUNTIME_TABLES:
+            qualified = f"public.{table}"
+            cur.execute("SELECT to_regclass(%s)", (qualified,))
+            if cur.fetchone()[0] is None:
+                missing.append(f"missing table {qualified}")
+                continue
+            cur.execute(
+                "SELECT has_table_privilege(current_user, %s, 'SELECT,INSERT,UPDATE,DELETE')",
+                (qualified,),
+            )
+            if not cur.fetchone()[0]:
+                missing.append(f"DML permission on {qualified}")
+        for sequence in RUNTIME_SEQUENCES:
+            qualified = f"public.{sequence}"
+            cur.execute("SELECT to_regclass(%s)", (qualified,))
+            if cur.fetchone()[0] is None:
+                missing.append(f"missing sequence {qualified}")
+                continue
+            cur.execute(
+                "SELECT has_sequence_privilege(current_user, %s, 'USAGE,SELECT')",
+                (qualified,),
+            )
+            if not cur.fetchone()[0]:
+                missing.append(f"sequence permission on {qualified}")
+    if missing:
+        raise RuntimeError(
+            "The configured database role is missing required TangoOps runtime access: "
+            + "; ".join(missing)
+        )
+
 
 @st.cache_resource(show_spinner=False)
 def _pool():
@@ -164,12 +208,33 @@ def _pool():
     )
     conn = p.getconn()
     try:
-        with conn.cursor() as cur:
-            cur.execute(SCHEMA)
-        conn.commit()
+        # Runtime connections never create/alter tables or permissions. Schema
+        # changes must be run separately with scripts/run_migrations.py using a
+        # temporary administrator connection.
+        _verify_runtime_permissions(conn)
     finally:
         p.putconn(conn)
     return p
+
+
+def get_database_role_posture() -> dict:
+    """Return non-secret role properties used to verify least privilege."""
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT current_user, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
+                "FROM pg_roles WHERE rolname=current_user"
+            )
+            row = cur.fetchone()
+        return {
+            "role": row[0], "superuser": bool(row[1]), "create_database": bool(row[2]),
+            "create_role": bool(row[3]), "replication": bool(row[4]),
+            "bypass_rls": bool(row[5]),
+        }
+    finally:
+        p.putconn(conn)
 
 
 def _query(sql, params=None, columns=None):
