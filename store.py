@@ -384,6 +384,17 @@ def get_assignment_history(profile_url: str, business_id: str) -> pd.DataFrame:
     )
 
 
+def get_recent_platform_activity(limit: int = 12) -> pd.DataFrame:
+    """Recent cross-agency operational events for the Platform Admin dashboard."""
+    return _query(
+        "SELECT al.business_id, b.business_name, al.broadcaster_name, al.sub_agency, "
+        "al.assigned_by, al.assigned_at "
+        "FROM assignment_log al LEFT JOIN businesses b ON b.business_id=al.business_id "
+        "ORDER BY al.assigned_at DESC LIMIT %s",
+        (int(limit),),
+    )
+
+
 # ---------------- archive ----------------
 
 def get_archived_periods(business_id: str) -> set:

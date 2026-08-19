@@ -216,3 +216,58 @@ def attribution_completeness(df: pd.DataFrame) -> dict:
 
 def leaderboard(df: pd.DataFrame, n: int = 5, metric: str = "diamonds_redeemed") -> pd.DataFrame:
     return df.sort_values(metric, ascending=False).head(n)
+
+
+def broadcaster_health_score(current_df: pd.DataFrame, previous_df: pd.DataFrame = None) -> int:
+    """Explainable 0-100 operating score for the selected broadcaster roster.
+
+    The score rewards active participation, retention, positive diamond movement,
+    and consistent streaming. It intentionally uses only data already uploaded to
+    TangoOps, so no paid AI service or hidden model is involved.
+    """
+    if current_df is None or current_df.empty:
+        return 0
+    total = max(1, current_df["profile_url"].nunique())
+    active_rate = (current_df["streaming_days"] > 0).sum() / total
+    consistency = min(1.0, float(current_df["streaming_days"].mean()) / 18.0)
+    retention = retention_rate(current_df, previous_df) if previous_df is not None and not previous_df.empty else None
+    retention_factor = (retention / 100) if retention is not None else active_rate
+    current_diamonds = float(current_df["diamonds_redeemed"].sum())
+    if previous_df is not None and not previous_df.empty:
+        previous_diamonds = float(previous_df["diamonds_redeemed"].sum())
+        growth_factor = min(1.0, max(0.0, 0.5 + ((current_diamonds - previous_diamonds) / max(previous_diamonds, 1)) * 1.5))
+    else:
+        growth_factor = 0.5
+    score = active_rate * 35 + retention_factor * 30 + consistency * 20 + growth_factor * 15
+    return int(round(min(100, max(0, score))))
+
+
+def data_quality_score(df: pd.DataFrame) -> int:
+    """Return a transparent completeness/validity score for an uploaded period."""
+    if df is None or df.empty:
+        return 0
+    required = ["profile_url", "broadcaster_name", "diamonds_redeemed", "streaming_days", "streaming_hours"]
+    present = [c for c in required if c in df.columns]
+    if not present:
+        return 0
+    complete = df[present].notna().mean().mean()
+    unique_profiles = df["profile_url"].nunique() / max(1, len(df)) if "profile_url" in df.columns else 0
+    numeric_valid = 1.0
+    for col in ["diamonds_redeemed", "streaming_days", "streaming_hours"]:
+        if col in df.columns:
+            numeric_valid -= float((pd.to_numeric(df[col], errors="coerce") < 0).mean()) / 3
+    return int(round(min(100, max(0, complete * 55 + unique_profiles * 25 + numeric_valid * 20))))
+
+
+def performance_target(current_value: float, previous_value: float, growth_goal: float = 0.08) -> dict:
+    """Create a dynamic target from the prior period and return progress details."""
+    current_value = float(current_value or 0)
+    previous_value = float(previous_value or 0)
+    target = previous_value * (1 + growth_goal) if previous_value > 0 else current_value
+    progress = (current_value / target * 100) if target > 0 else 0
+    return {
+        "target": round(target, 2),
+        "progress_pct": round(progress, 1),
+        "remaining": round(max(0, target - current_value), 2),
+        "ahead": current_value >= target and target > 0,
+    }

@@ -140,7 +140,31 @@ st.markdown("""
 .stApp:has(.owner-overview-page) div[data-testid="stVerticalBlockBorderWrapper"]{ background:#FFFFFF; border-color:#E0E5DC; border-radius:1rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
 .stApp:has(.owner-overview-page) div[data-baseweb="select"] > div{ background:#FFFFFF; border-color:#D9E0D5; }
 
-/* Task-oriented Agency Owner sidebar — Option 3 */
+/* Option 1 — Executive Command Center */
+.command-grid-title{ display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:1.6rem 0 .75rem; }
+.command-grid-title h2{ color:#172016; font-size:1.2rem; margin:0; }
+.command-grid-title p{ color:#737D70; font-size:.82rem; margin:.2rem 0 0; }
+.command-score{ min-height:164px; display:flex; align-items:center; gap:1.15rem; padding:1.2rem;
+  background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; }
+.command-score-ring{ --score:0; position:relative; flex:none; width:6.25rem; height:6.25rem; border-radius:50%;
+  display:grid; place-items:center; background:conic-gradient(#74A843 calc(var(--score)*1%),#E8EDE5 0); }
+.command-score-ring::before{ content:''; position:absolute; width:4.75rem; height:4.75rem; border-radius:50%; background:#fff; }
+.command-score-value{ position:relative; color:#172016; font-size:1.7rem; font-weight:780; }
+.command-score-copy h3{ color:#1C251A; font-size:1rem; margin:0 0 .35rem; }
+.command-score-copy p{ color:#6E786B; font-size:.76rem; line-height:1.45; margin:0; }
+.command-alert{ min-height:164px; padding:1.2rem; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; }
+.command-alert-label{ color:#B05C16; font-size:.7rem; font-weight:750; text-transform:uppercase; letter-spacing:.07em; }
+.command-alert-value{ color:#1B2419; font-size:1.8rem; font-weight:780; margin:.65rem 0 .25rem; }
+.command-alert-copy{ color:#70796D; font-size:.76rem; line-height:1.45; }
+.command-progress{ height:.52rem; overflow:hidden; background:#E8EDE5; border-radius:999px; margin:.8rem 0 .55rem; }
+.command-progress span{ display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#315E18,#9ACB31); }
+.command-table-badge{ display:inline-flex; align-items:center; padding:.22rem .5rem; border-radius:999px;
+  color:#2E6B2A; background:#EAF4E5; font-size:.68rem; font-weight:700; }
+.command-footnote{ color:#788176; font-size:.7rem; margin-top:.45rem; }
+.stApp:has(.owner-overview-page) div[data-testid="stMetric"]{ background:#FFFFFF; border:1px solid #E0E5DC;
+  border-radius:.9rem; padding:.85rem 1rem; }
+
+/* Role-specific Agency Owner and Sub-Agency sidebar */
 .owner-sidebar-marker{ display:none; }
 .stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"]{
   background:#FAFBF9; border-right:1px solid #DEE4DA;
@@ -701,6 +725,94 @@ if st.session_state.page == "Businesses":
     with m4:
         kpi_card("Sub-Agencies", f"{total_sub_agencies:,}")
 
+    # Executive Command Center: platform-wide health derived from live agency data.
+    reporting_month = dt.date.today().strftime("%Y-%m")
+    agency_health_rows = []
+    current_network_diamonds = previous_network_diamonds = 0
+    for _, business_row in businesses.iterrows():
+        bid = business_row["business_id"]
+        raw = load_all_raw(bid)
+        monthly = raw[raw["period_type"] == "monthly"].copy() if not raw.empty else pd.DataFrame()
+        periods = sorted(monthly["period"].unique()) if not monthly.empty else []
+        latest_period = periods[-1] if periods else None
+        previous_period = periods[-2] if len(periods) > 1 else None
+        current_df = monthly[monthly["period"] == latest_period].copy() if latest_period else pd.DataFrame()
+        previous_df = monthly[monthly["period"] == previous_period].copy() if previous_period else pd.DataFrame()
+        current_kpis = utils.compute_kpis(current_df)
+        previous_kpis = utils.compute_kpis(previous_df) if not previous_df.empty else {}
+        health = utils.broadcaster_health_score(current_df, previous_df)
+        quality = utils.data_quality_score(current_df)
+        current_network_diamonds += current_kpis["diamonds_redeemed"]
+        previous_network_diamonds += previous_kpis.get("diamonds_redeemed", 0)
+        agency_health_rows.append({
+            "Agency": business_row["business_name"],
+            "Latest report": latest_period or "Missing",
+            "Broadcasters": current_kpis["broadcasters"],
+            "Diamonds": current_kpis["diamonds_redeemed"],
+            "Health": health,
+            "Data quality": quality,
+            "Status": ("Healthy" if health >= 75 else "Watch" if health >= 55 else "Needs attention"),
+        })
+    agency_health = pd.DataFrame(agency_health_rows)
+    uploaded_current = int((agency_health["Latest report"] == reporting_month).sum()) if not agency_health.empty else 0
+    adoption_pct = round(uploaded_current / max(1, active_agencies) * 100, 1)
+    missing_reports = max(0, active_agencies - uploaded_current)
+    network_growth = (round((current_network_diamonds - previous_network_diamonds) /
+                            previous_network_diamonds * 100, 1)
+                      if previous_network_diamonds else 0.0)
+    avg_health = round(float(agency_health["Health"].mean()), 1) if not agency_health.empty else 0.0
+
+    st.markdown("""
+    <div class="command-grid-title"><div><h2>Platform health overview</h2>
+    <p>Live reporting adoption, network performance and account health.</p></div></div>
+    """, unsafe_allow_html=True)
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Agency adoption", f"{adoption_pct:.1f}%", f"{uploaded_current} reported this month")
+    p2.metric("Missing reports", f"{missing_reports}", "Current reporting month")
+    p3.metric("Network growth", f"{network_growth:+.1f}%", "Diamonds vs previous period")
+    p4.metric("Average account health", f"{avg_health:.0f}/100", "Explainable operating score")
+
+    if not agency_health.empty:
+        left_health, right_health = st.columns([1.45, 1])
+        with left_health:
+            with st.container(border=True):
+                st.markdown("##### Agency health directory")
+                st.dataframe(
+                    agency_health.sort_values(["Health", "Diamonds"], ascending=[True, False]),
+                    hide_index=True, width="stretch",
+                    column_config={
+                        "Diamonds": st.column_config.NumberColumn("Diamonds", format="localized"),
+                        "Health": st.column_config.ProgressColumn("Health", min_value=0, max_value=100, format="%d"),
+                        "Data quality": st.column_config.ProgressColumn("Data quality", min_value=0, max_value=100, format="%d"),
+                    },
+                )
+        with right_health:
+            status_counts = agency_health["Status"].value_counts()
+            health_fig = go.Figure(go.Pie(
+                labels=status_counts.index, values=status_counts.values, hole=.7,
+                marker=dict(colors=["#5C9D3A", "#E39A32", "#C7544B"]),
+                textinfo="label+value", hovertemplate="%{label}: %{value}<extra></extra>",
+            ))
+            health_fig.update_layout(
+                title="Account health distribution", height=310,
+                margin=dict(l=10, r=10, t=55, b=10), showlegend=False,
+                paper_bgcolor="#FFFFFF", font=dict(family="Inter", color="#4C5548"),
+                annotations=[dict(text=f"{len(agency_health)}<br>agencies", x=.5, y=.5,
+                                  showarrow=False, font=dict(size=16, color="#172016"))],
+            )
+            with st.container(border=True):
+                st.plotly_chart(health_fig, width="stretch", config={"displayModeBar": False})
+
+    recent_platform_activity = store.get_recent_platform_activity(8)
+    if not recent_platform_activity.empty:
+        with st.expander("Recent platform activity", expanded=False):
+            activity_view = recent_platform_activity.rename(columns={
+                "business_name": "Agency", "broadcaster_name": "Broadcaster",
+                "sub_agency": "Sub-Agency", "assigned_by": "Changed by", "assigned_at": "Time",
+            })
+            st.dataframe(activity_view[["Agency", "Broadcaster", "Sub-Agency", "Changed by", "Time"]],
+                         hide_index=True, width="stretch")
+
     create_tab = st.expander("＋ Create a new agency", expanded=False)
     directory_tab = st.container()
     with create_tab:
@@ -961,6 +1073,14 @@ elif st.session_state.page == "Admin":
     sub_gross_usd, sub_commission_usd = calculate_sub_agency_earnings(
         kpis["diamonds_redeemed"], sub_commission_pct
     )
+    retention = utils.retention_rate(df_current, df_previous) if not df_previous.empty else None
+    at_risk_df = (utils.at_risk_broadcasters(df_current, df_previous)
+                  if not df_previous.empty else df_current.iloc[0:0])
+    health_score = utils.broadcaster_health_score(df_current, df_previous)
+    health_label = "Excellent" if health_score >= 85 else "Healthy" if health_score >= 70 else "Watch" if health_score >= 55 else "Needs attention"
+    diamond_target = utils.performance_target(
+        kpis["diamonds_redeemed"], prev_kpis.get("diamonds_redeemed", 0), growth_goal=.08
+    )
 
     def overview_delta(metric):
         if not prev_kpis:
@@ -974,6 +1094,27 @@ elif st.session_state.page == "Admin":
     diamond_note, diamond_direction = overview_delta("diamonds_redeemed")
     earning_note, earning_direction = overview_delta("my_earnings_usd")
     days_note, days_direction = overview_delta("days_worked")
+
+    score_col, alert_col = st.columns(2)
+    with score_col:
+        st.markdown(f"""
+        <div class="command-score">
+          <div class="command-score-ring" style="--score:{health_score}"><div class="command-score-value">{health_score}</div></div>
+          <div class="command-score-copy"><h3>Broadcaster health score</h3>
+          <p><strong>{health_label}</strong><br>Activity, retention, consistency and performance movement combined into one transparent score.</p></div>
+        </div>
+        """, unsafe_allow_html=True)
+    with alert_col:
+        warning_copy = ("Previously productive broadcasters have no streaming activity this month."
+                        if len(at_risk_df) else "No previously productive broadcasters have dropped to zero activity.")
+        st.markdown(f"""
+        <div class="command-alert">
+          <div class="command-alert-label">Retention warning</div>
+          <div class="command-alert-value">{len(at_risk_df)} broadcaster{'s' if len(at_risk_df) != 1 else ''} at risk</div>
+          <div class="command-alert-copy">{warning_copy}</div>
+          <div class="command-footnote">Retention: {f'{retention:.1f}%' if retention is not None else 'First reporting period'}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1011,12 +1152,11 @@ elif st.session_state.page == "Admin":
       <p>Signals that may need attention this reporting period.</p>
     </div>
     """, unsafe_allow_html=True)
-    retention = utils.retention_rate(df_current, df_previous) if not df_previous.empty else None
-    at_risk_df = utils.at_risk_broadcasters(df_current, df_previous) if not df_previous.empty else df_current.iloc[0:0]
     dpd_df = utils.diamonds_per_day(df_current)
     avg_dpd = round(dpd_df["diamonds_per_day"].mean(), 1) if not dpd_df.empty else 0
+    quality_score = utils.data_quality_score(df_current)
 
-    i1, i2, i3 = st.columns(3)
+    i1, i2, i3, i4 = st.columns(4)
     with i1:
         st.markdown(f"""
         <div class="insight-card">
@@ -1050,6 +1190,14 @@ elif st.session_state.page == "Admin":
               <div class="insight-caption">Average diamonds redeemed per streaming day</div>
             </div>
             """, unsafe_allow_html=True)
+    with i4:
+        st.markdown(f"""
+        <div class="insight-card">
+          <div class="insight-label">Data quality</div>
+          <div class="insight-value">{quality_score}/100</div>
+          <div class="insight-caption">Completeness, valid values and unique profiles</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if len(at_risk_df) > 0:
         with st.expander(f"{len(at_risk_df)} broadcaster(s) earned diamonds last period, streamed 0 days this period"):
@@ -1060,6 +1208,120 @@ elif st.session_state.page == "Admin":
                 hide_index=True, width='stretch',
                 column_config=table_column_config(at_risk_columns),
             )
+
+    # Rule-based monthly summary and follow-up list: useful without a paid AI service.
+    movement_text = (f"Diamonds are {abs(float(diamond_note.split()[1].replace('%',''))):.1f}% "
+                     f"{'higher' if diamond_direction == 'up' else 'lower'} than {previous_period}"
+                     if prev_kpis else "This is the first available reporting period")
+    st.info(
+        f"**Monthly management summary:** {movement_text}. Health is **{health_label.lower()}** at "
+        f"**{health_score}/100**, retention is **{f'{retention:.1f}%' if retention is not None else 'not yet available'}**, "
+        f"and **{len(at_risk_df)}** broadcaster(s) currently need retention follow-up."
+    )
+    follow_up_rows = []
+    for _, risk_row in at_risk_df.head(8).iterrows():
+        follow_up_rows.append({
+            "Priority": "High", "Broadcaster": risk_row["broadcaster_name"],
+            "Sub-Agency": risk_row.get("sub_agency", user_agency or "—"),
+            "Reason": "Previously productive; no streaming days this month",
+            "Recommended action": "Contact and agree a reactivation plan",
+        })
+    if is_owner and attribution_all["unassigned"] > 0:
+        follow_up_rows.append({
+            "Priority": "Medium", "Broadcaster": f"{attribution_all['unassigned']} unassigned profiles",
+            "Sub-Agency": "Unassigned", "Reason": "Roster attribution is incomplete",
+            "Recommended action": "Review and assign broadcasters",
+        })
+    if not diamond_target["ahead"]:
+        follow_up_rows.append({
+            "Priority": "Medium", "Broadcaster": "Selected roster", "Sub-Agency": scope_agency or "All",
+            "Reason": f"{diamond_target['remaining']:,.0f} diamonds below monthly target",
+            "Recommended action": "Review declining broadcasters and target pacing",
+        })
+    if follow_up_rows:
+        with st.expander(f"Follow-up task list ({len(follow_up_rows)})", expanded=False):
+            st.dataframe(pd.DataFrame(follow_up_rows), hide_index=True, width="stretch")
+    else:
+        st.success("No urgent follow-up tasks for the selected reporting period.")
+
+    st.markdown("""
+    <div class="command-grid-title"><div><h2>Target and financial outlook</h2>
+    <p>Current progress against an 8% improvement target based on the previous reporting period.</p></div></div>
+    """, unsafe_allow_html=True)
+    outlook_left, outlook_right = st.columns([1, 1.45])
+    progress_width = min(100, max(0, diamond_target["progress_pct"]))
+    with outlook_left:
+        with st.container(border=True):
+            st.markdown("##### Monthly performance target")
+            st.metric("Diamonds redeemed", f"{kpis['diamonds_redeemed']:,.0f}",
+                      f"Target {diamond_target['target']:,.0f}")
+            st.markdown(
+                f'<div class="command-progress"><span style="width:{progress_width}%"></span></div>',
+                unsafe_allow_html=True,
+            )
+            target_message = (f"Ahead of target by {kpis['diamonds_redeemed'] - diamond_target['target']:,.0f} diamonds."
+                              if diamond_target["ahead"] else
+                              f"{diamond_target['remaining']:,.0f} diamonds remaining to reach target.")
+            st.caption(f"{diamond_target['progress_pct']:.1f}% achieved · {target_message}")
+            if is_sub_agency:
+                st.divider()
+                st.markdown("##### Commission summary")
+                pc1, pc2 = st.columns(2)
+                pc1.metric("Gross redeemed value", f"${sub_gross_usd:,.2f}")
+                pc2.metric("Commission earned", "Not set" if sub_commission_usd is None else f"${sub_commission_usd:,.2f}")
+                statement = df_current[["broadcaster_name", "diamonds_redeemed", "streaming_days"]].copy()
+                statement["gross_value_usd"] = statement["diamonds_redeemed"] / DIAMONDS_PER_USD
+                statement["commission_pct"] = sub_commission_pct
+                statement["commission_usd"] = (statement["gross_value_usd"] * sub_commission_pct / 100
+                                                if sub_commission_pct is not None else None)
+                st.download_button(
+                    "Download commission statement", statement.to_csv(index=False).encode("utf-8"),
+                    file_name=f"commission_statement_{user_agency}_{current_period}.csv",
+                    mime="text/csv", width="stretch",
+                )
+    with outlook_right:
+        if is_owner:
+            comparison_rows = []
+            agency_details = store.get_agency_details(business_id)
+            rates = {row["agency_name"]: (None if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
+                     for _, row in agency_details.iterrows()}
+            for sub_name in load_agencies(business_id):
+                sub_df = utils.filter_by_agency(df_current_all, sub_name)
+                sub_kpis = utils.compute_kpis(sub_df)
+                gross, due = calculate_sub_agency_earnings(sub_kpis["diamonds_redeemed"], rates.get(sub_name))
+                comparison_rows.append({"Sub-Agency": sub_name, "Diamonds": sub_kpis["diamonds_redeemed"],
+                                        "Active": sub_kpis["active"], "Gross value": gross,
+                                        "Commission due": due or 0})
+            comparison = pd.DataFrame(comparison_rows)
+            if comparison.empty:
+                st.info("Create and assign a Sub-Agency to unlock performance comparison.")
+            else:
+                comparison = comparison.sort_values("Diamonds", ascending=True)
+                compare_fig = go.Figure(go.Bar(
+                    x=comparison["Diamonds"], y=comparison["Sub-Agency"], orientation="h",
+                    marker=dict(color="#3F6B1E"), text=comparison["Diamonds"], texttemplate="%{text:,.0f}",
+                    textposition="outside", hovertemplate="%{y}<br>%{x:,.0f} diamonds<extra></extra>",
+                ))
+                compare_fig.update_layout(
+                    title="Sub-Agency performance", height=285, margin=dict(l=10, r=45, t=50, b=20),
+                    xaxis=dict(showgrid=True, gridcolor="#E8ECE5", title=None),
+                    yaxis=dict(title=None), paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                    font=dict(family="Inter", color="#4C5548"), showlegend=False,
+                )
+                with st.container(border=True):
+                    st.plotly_chart(compare_fig, width="stretch", config={"displayModeBar": False})
+                    fc1, fc2 = st.columns(2)
+                    fc1.metric("Forecast commission", f"${comparison['Commission due'].sum():,.2f}")
+                    fc2.metric("Redeemed value", f"${comparison['Gross value'].sum():,.2f}")
+        else:
+            roster_view = utils.add_growth_status(df_current, df_previous)
+            roster_columns = ["broadcaster_name", "status", "diamonds_redeemed", "streaming_days", "growth_pct"]
+            with st.container(border=True):
+                st.markdown("##### Assigned broadcaster performance")
+                st.dataframe(
+                    roster_view[roster_columns].sort_values("diamonds_redeemed", ascending=False).head(8),
+                    hide_index=True, width="stretch", column_config=table_column_config(roster_columns),
+                )
 
     st.markdown("""
     <div class="overview-section">
@@ -1100,7 +1362,7 @@ elif st.session_state.page == "Admin":
         fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     else:
         st.info("Upload a second month to unlock the performance trend.")
 
