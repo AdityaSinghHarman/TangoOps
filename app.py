@@ -267,6 +267,13 @@ section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
   background:var(--brand-soft) !important; color:var(--brand) !important;
   border:1px solid var(--brand-soft) !important; box-shadow:none !important; font-weight:600;
 }
+button:focus-visible, a:focus-visible, input:focus-visible, [role="button"]:focus-visible{
+  outline:3px solid rgba(63,107,30,.35) !important; outline-offset:2px;
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ scroll-behavior:auto !important; transition:none !important; animation:none !important; }
+  .kpi-card:hover{ transform:none; }
+}
 
 h1, h2, h3 { letter-spacing:-0.02em; }
 </style>
@@ -305,6 +312,10 @@ TABLE_COLUMN_CONFIG = {
     "streaming_days": st.column_config.NumberColumn("Days streamed", format="%d", width="small"),
     "streaming_hours": st.column_config.NumberColumn("Hours streamed", format="%.1f", width="small"),
     "diamonds_redeemed": st.column_config.NumberColumn("Diamonds redeemed", format="localized", width="small"),
+    "diamonds_earned": st.column_config.NumberColumn("Diamonds earned", format="localized", width="small"),
+    "usd_earned": st.column_config.NumberColumn("Creator revenue", format="$%.2f", width="small"),
+    "usd_redeemed": st.column_config.NumberColumn("Redeemed value", format="$%.2f", width="small"),
+    "my_earnings_usd": st.column_config.NumberColumn("Agency revenue", format="$%.2f", width="small"),
     "diamonds_per_day": st.column_config.NumberColumn("Diamonds per day", format="localized", width="small"),
     "growth_pct": st.column_config.NumberColumn("Growth vs previous month", format="%.1f%%", width="medium"),
     "is_new": st.column_config.CheckboxColumn("New broadcaster", width="small"),
@@ -548,15 +559,18 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-        nav_button("Overview", "Admin", ":material/dashboard:")
-        nav_button("Statistics", "Statistics", ":material/bar_chart:")
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-group-head"><span>Dashboards</span></div>', unsafe_allow_html=True)
+            nav_button("My Dashboard", "Admin", ":material/dashboard:")
+            nav_button("Broadcaster Dashboard", "Statistics", ":material/monitoring:")
+            nav_button("Recruiter Dashboard", "SubAgencies", ":material/hub:")
 
         with st.container(border=True):
             st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
             st.markdown('<div class="sidebar-group-head"><span>Manage</span></div>', unsafe_allow_html=True)
             nav_button("Broadcasters", "Broadcasters", ":material/groups:")
             nav_button("Assign broadcasters", "Assign", ":material/person_add:")
-            nav_button("Sub-Agency Management", "SubAgencies", ":material/account_tree:")
             nav_button("Create Sub-Agency", "CreateAgency", ":material/domain_add:")
 
         current_month_key = dt.date.today().strftime("%Y-%m")
@@ -1051,7 +1065,7 @@ elif st.session_state.page == "MyProfile":
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
-    overview_title = "Business overview" if is_owner else f"{html.escape(str(user_agency))} overview"
+    overview_title = "My Dashboard" if is_owner else f"{html.escape(str(user_agency))} overview"
     overview_subtitle = (f"Performance across {html.escape(str(business_name))}'s agency network" if is_owner
                          else "Performance for your assigned broadcaster roster")
     st.markdown(f"""
@@ -1176,6 +1190,15 @@ elif st.session_state.page == "Admin":
     with c6:
         overview_kpi_card("Avg diamonds / broadcaster", f"{avg_dpb:,.1f}", "↗",
                           f"Across {n_agencies} active Sub-Agencies" if is_owner else "Current roster average")
+
+    if is_owner:
+        extended1, extended2, extended3, extended4 = st.columns(4)
+        extended1.metric("New broadcasters", f"{int(df_current['is_new'].sum()):,}",
+                         "Added in the selected month")
+        extended2.metric("Diamonds earned", f"{float(df_current['diamonds_earned'].sum()):,.0f}")
+        extended3.metric("Creator revenue", f"${float(df_current['usd_earned'].sum()):,.2f}",
+                         "USD Earned from Tango report")
+        extended4.metric("Streaming hours", f"{float(df_current['streaming_hours'].sum()):,.1f}")
 
     if is_owner:
         direct_df = df_current_all[df_current_all["sub_agency"] == "Agency Direct"]
@@ -1415,13 +1438,15 @@ elif st.session_state.page == "Admin":
     """, unsafe_allow_html=True)
     trend_periods = sorted(monthly_periods)[-6:]
     if len(trend_periods) > 1:
-        trend_diamonds, trend_active = [], []
+        trend_diamonds, trend_active, trend_agency_revenue, trend_creator_revenue = [], [], [], []
         for trend_period in trend_periods:
             trend_df = period_data(trend_period, "monthly")
             trend_df = utils.filter_by_agency(trend_df, scope_agency)
             trend_kpis = utils.compute_kpis(trend_df)
             trend_diamonds.append(trend_kpis["diamonds_redeemed"])
             trend_active.append(trend_kpis["active"])
+            trend_agency_revenue.append(trend_kpis["my_earnings_usd"])
+            trend_creator_revenue.append(float(trend_df["usd_earned"].sum()))
 
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         fig.add_trace(go.Scatter(
@@ -1447,6 +1472,41 @@ elif st.session_state.page == "Admin":
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
             st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        financial_left, lifecycle_right = st.columns(2)
+        financial_fig = go.Figure()
+        financial_fig.add_trace(go.Scatter(
+            name="Agency revenue", x=trend_periods, y=trend_agency_revenue,
+            mode="lines+markers", line=dict(color="#3F6B1E", width=3),
+            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
+        ))
+        financial_fig.add_trace(go.Scatter(
+            name="Creator revenue", x=trend_periods, y=trend_creator_revenue,
+            mode="lines+markers", line=dict(color="#E2812C", width=2.5),
+            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
+        ))
+        financial_fig.update_layout(
+            title="Monthly revenue trend", height=330, margin=dict(l=20, r=20, t=50, b=20),
+            paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF", hovermode="x unified",
+            yaxis=dict(tickprefix="$", gridcolor="#E8ECE5"),
+            legend=dict(orientation="h", y=1.05),
+        )
+        with financial_left:
+            with st.container(border=True):
+                st.plotly_chart(financial_fig, width="stretch", config={"displayModeBar": False})
+        lifecycle_df = utils.add_growth_status(df_current, df_previous)
+        lifecycle_counts = lifecycle_df["status"].value_counts()
+        lifecycle_fig = go.Figure(go.Bar(
+            x=lifecycle_counts.index, y=lifecycle_counts.values,
+            marker_color="#86A96B", text=lifecycle_counts.values, textposition="outside",
+            hovertemplate="%{x}: %{y}<extra></extra>",
+        ))
+        lifecycle_fig.update_layout(title="Broadcaster lifecycle", height=330,
+                                    margin=dict(l=20, r=20, t=50, b=35), showlegend=False,
+                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                    yaxis=dict(gridcolor="#E8ECE5", title="Broadcasters"), xaxis=dict(title=None))
+        with lifecycle_right:
+            with st.container(border=True):
+                st.plotly_chart(lifecycle_fig, width="stretch", config={"displayModeBar": False})
     else:
         st.info("Upload a second month to unlock the performance trend.")
 
@@ -1473,35 +1533,143 @@ elif st.session_state.page == "Statistics":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("Statistics")
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="overview-hero"><div><div class="overview-eyebrow">Agency analytics</div>
+    <h1>Broadcaster Dashboard</h1><p>Search, segment and compare every broadcaster in the Agency roster.</p>
+    </div><div class="overview-period-pill">Broadcaster intelligence</div></div>
+    """, unsafe_allow_html=True)
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
         st.stop()
-    current_period = st.selectbox("Month", monthly_periods, key="stats_month")
-    df_current = period_data(current_period, "monthly")
-    df_current, agency_choice = agency_filter_widget(df_current, "stats_agency")
-
+    current_period = st.selectbox("Reporting month", monthly_periods, key="stats_month")
+    df_all = period_data(current_period, "monthly")
     prev_period = previous_period_of(current_period, "monthly")
-    df_prev = utils.filter_by_agency(period_data(prev_period, "monthly"), agency_choice) if prev_period else pd.DataFrame()
+    df_prev_all = period_data(prev_period, "monthly") if prev_period else pd.DataFrame()
+    if df_all.empty:
+        st.info("No broadcasters in this reporting month.")
+        st.stop()
 
-    if df_current.empty:
-        st.info("No broadcasters in this view.")
-    else:
-        df_current = utils.add_growth_status(df_current, df_prev)
-        df_current = utils.diamonds_per_day(df_current)
-        show_cols = ["broadcaster_name", "sub_agency", "status", "streaming_days",
-                     "streaming_hours", "diamonds_redeemed", "diamonds_per_day", "growth_pct", "is_new"]
-        st.dataframe(
-            df_current[show_cols].sort_values("diamonds_redeemed", ascending=False),
-            width='stretch', hide_index=True,
-            column_config=table_column_config(show_cols),
-        )
-        st.download_button(
-            "Export this view as CSV",
-            df_current[show_cols].to_csv(index=False).encode("utf-8"),
-            file_name=f"statistics_{current_period}_{agency_choice}.csv",
-        )
+    analytics = utils.diamonds_per_day(utils.add_growth_status(df_all, df_prev_all))
+    at_risk_all = utils.at_risk_broadcasters(df_all, df_prev_all) if not df_prev_all.empty else df_all.iloc[0:0]
+    total = analytics["profile_url"].nunique()
+    active = int((analytics["streaming_days"] > 0).sum())
+    inactive = total - active
+    new_count = int(analytics["is_new"].sum())
+    reactivated = int((analytics["status"] == "Reactivated").sum())
+    avg_hours = float(analytics["streaming_hours"].mean()) if total else 0
+    avg_creator_revenue = float(analytics["usd_earned"].mean()) if total else 0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total broadcasters", f"{total:,}")
+    k2.metric("Active", f"{active:,}", f"{active / max(1, total) * 100:.1f}% of roster")
+    k3.metric("Inactive", f"{inactive:,}")
+    k4.metric("New this month", f"{new_count:,}")
+    k5, k6, k7, k8 = st.columns(4)
+    k5.metric("Reactivated", f"{reactivated:,}")
+    k6.metric("At risk", f"{len(at_risk_all):,}")
+    k7.metric("Avg streaming hours", f"{avg_hours:,.1f}")
+    k8.metric("Avg creator revenue", f"${avg_creator_revenue:,.2f}")
+
+    with st.expander("Search and filters", expanded=True, icon=":material/filter_alt:"):
+        f1, f2, f3 = st.columns([1.4, 1, 1])
+        search = f1.text_input("Search broadcaster", placeholder="Name or profile URL", key="bd_search")
+        source_options = ["All", "Agency Direct"] + load_agencies(business_id)
+        source = f2.selectbox("Recruitment source", source_options, key="bd_source")
+        available_statuses = sorted(analytics["status"].dropna().unique().tolist())
+        statuses = f3.multiselect("Broadcaster status", available_statuses, key="bd_status")
+        f4, f5, f6 = st.columns(3)
+        new_filter = f4.selectbox("New broadcaster", ["All", "New only", "Existing only"], key="bd_new")
+        min_hours = f5.number_input("Minimum streaming hours", min_value=0.0, value=0.0, step=1.0, key="bd_hours")
+        min_revenue = f6.number_input("Minimum creator revenue", min_value=0.0, value=0.0, step=10.0, key="bd_revenue")
+
+    view = analytics.copy()
+    if search.strip():
+        needle = search.strip()
+        view = view[
+            view["broadcaster_name"].str.contains(needle, case=False, na=False)
+            | view["profile_url"].str.contains(needle, case=False, na=False)
+        ]
+    if source != "All":
+        view = utils.filter_by_agency(view, source)
+    if statuses:
+        view = view[view["status"].isin(statuses)]
+    if new_filter == "New only":
+        view = view[view["is_new"]]
+    elif new_filter == "Existing only":
+        view = view[~view["is_new"]]
+    view = view[(view["streaming_hours"] >= min_hours) & (view["usd_earned"] >= min_revenue)]
+
+    chart_left, chart_right = st.columns(2)
+    with chart_left:
+        top_revenue = view.nlargest(10, "usd_earned").sort_values("usd_earned")
+        revenue_fig = go.Figure(go.Bar(
+            x=top_revenue["usd_earned"], y=top_revenue["broadcaster_name"], orientation="h",
+            marker_color="#3F6B1E", text=top_revenue["usd_earned"], texttemplate="$%{text:,.0f}",
+            textposition="outside", hovertemplate="%{y}<br>$%{x:,.2f}<extra></extra>",
+        ))
+        revenue_fig.update_layout(title="Top broadcasters by creator revenue", height=350,
+                                  margin=dict(l=10, r=55, t=50, b=20), showlegend=False,
+                                  paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                  xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
+        with st.container(border=True):
+            st.plotly_chart(revenue_fig, width="stretch", config={"displayModeBar": False})
+    with chart_right:
+        status_counts = view["status"].value_counts()
+        status_fig = go.Figure(go.Bar(
+            x=status_counts.index, y=status_counts.values, marker_color="#86A96B",
+            text=status_counts.values, textposition="outside",
+            hovertemplate="%{x}: %{y}<extra></extra>",
+        ))
+        status_fig.update_layout(title="Broadcaster activity distribution", height=350,
+                                 margin=dict(l=20, r=20, t=50, b=35), showlegend=False,
+                                 paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                 yaxis=dict(gridcolor="#E8ECE5", title="Broadcasters"), xaxis=dict(title=None))
+        with st.container(border=True):
+            st.plotly_chart(status_fig, width="stretch", config={"displayModeBar": False})
+
+    distribution_left, relationship_right = st.columns(2)
+    source_revenue = view.groupby("sub_agency", as_index=False)["usd_earned"].sum()
+    source_revenue = source_revenue.sort_values("usd_earned")
+    distribution_fig = go.Figure(go.Bar(
+        x=source_revenue["usd_earned"], y=source_revenue["sub_agency"], orientation="h",
+        marker_color="#5D7C4D", text=source_revenue["usd_earned"], texttemplate="$%{text:,.0f}",
+        textposition="outside", hovertemplate="%{y}<br>$%{x:,.2f}<extra></extra>",
+    ))
+    distribution_fig.update_layout(title="Creator revenue distribution by source", height=340,
+                                   margin=dict(l=10, r=55, t=50, b=20), showlegend=False,
+                                   paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                   xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
+    with distribution_left:
+        with st.container(border=True):
+            st.plotly_chart(distribution_fig, width="stretch", config={"displayModeBar": False})
+    relationship_fig = go.Figure(go.Scatter(
+        x=view["streaming_hours"], y=view["usd_earned"], mode="markers",
+        text=view["broadcaster_name"], marker=dict(size=10, color=view["diamonds_redeemed"],
+                                                   colorscale="Greens", showscale=True,
+                                                   colorbar=dict(title="Diamonds")),
+        hovertemplate="%{text}<br>%{x:.1f} hours<br>$%{y:,.2f}<extra></extra>",
+    ))
+    relationship_fig.update_layout(title="Streaming hours and creator revenue", height=340,
+                                   margin=dict(l=20, r=20, t=50, b=35),
+                                   xaxis=dict(title="Streaming hours", gridcolor="#E8ECE5"),
+                                   yaxis=dict(title="Creator revenue", tickprefix="$", gridcolor="#E8ECE5"),
+                                   paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF")
+    with relationship_right:
+        with st.container(border=True):
+            st.plotly_chart(relationship_fig, width="stretch", config={"displayModeBar": False})
+
+    st.markdown(f"### Broadcaster report · {len(view):,} result(s)")
+    show_cols = ["broadcaster_name", "profile_url", "sub_agency", "status", "is_new",
+                 "streaming_days", "streaming_hours", "diamonds_earned", "diamonds_redeemed",
+                 "usd_earned", "my_earnings_usd", "diamonds_per_day", "growth_pct"]
+    st.dataframe(view[show_cols].sort_values("usd_earned", ascending=False), width="stretch",
+                 hide_index=True, column_config=table_column_config(show_cols))
+    st.download_button(
+        "Download broadcaster report", view[show_cols].to_csv(index=False).encode("utf-8"),
+        file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
+    )
 
 # =============================================================== BROADCASTERS
 elif st.session_state.page == "Broadcasters":
@@ -1598,18 +1766,34 @@ elif st.session_state.page == "BroadcasterDetail":
 
     st.title(latest["broadcaster_name"])
     st.caption(f"{profile_url}  \u00b7  {sub_agency}")
+    st.link_button("Open Tango profile", profile_url, icon=":material/open_in_new:")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("This period", f"{int(latest['diamonds_redeemed']):,}")
-    c2.metric("Previous period", f"{int(prev['diamonds_redeemed']):,}" if prev is not None else "\u2014")
+    c1.metric("Diamonds redeemed", f"{int(latest['diamonds_redeemed']):,}")
+    c2.metric("Diamonds earned", f"{int(latest['diamonds_earned']):,}")
     c3.metric("Days streamed", int(latest["streaming_days"]))
     status = utils.broadcaster_status(latest["streaming_days"], prev["streaming_days"] if prev is not None else None)
     c4.metric("Status", status)
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("Streaming hours", f"{float(latest['streaming_hours']):,.1f}")
+    c6.metric("Creator revenue", f"${float(latest['usd_earned']):,.2f}")
+    c7.metric("Agency revenue", f"${float(latest['my_earnings_usd']):,.2f}")
+    previous_diamonds = float(prev["diamonds_redeemed"]) if prev is not None else 0
+    growth = ((float(latest["diamonds_redeemed"]) - previous_diamonds) / previous_diamonds * 100
+              if previous_diamonds else None)
+    c8.metric("Monthly growth", f"{growth:+.1f}%" if growth is not None else "First period")
 
     st.markdown("###### Diamonds, all uploaded months")
     st.line_chart(hist.set_index("period")["diamonds_redeemed"], height=220)
     st.markdown("###### Days streamed, all uploaded months")
     st.bar_chart(hist.set_index("period")["streaming_days"], height=160)
+    history_left, history_right = st.columns(2)
+    with history_left:
+        st.markdown("###### Creator revenue history")
+        st.line_chart(hist.set_index("period")["usd_earned"], height=190)
+    with history_right:
+        st.markdown("###### Streaming hours history")
+        st.line_chart(hist.set_index("period")["streaming_hours"], height=190)
 
     st.markdown("###### Assignment history")
     log = store.get_assignment_history(profile_url, business_id)
@@ -1626,7 +1810,12 @@ elif st.session_state.page == "SubAgencies":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("Sub-Agency Management")
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="overview-hero"><div><div class="overview-eyebrow">Recruitment analytics</div>
+    <h1>Recruiter Dashboard</h1><p>Compare recruiter contribution, activity, retention, commission and net Agency value.</p>
+    </div><div class="overview-period-pill">Recruiter performance</div></div>
+    """, unsafe_allow_html=True)
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
@@ -1651,17 +1840,72 @@ elif st.session_state.page == "SubAgencies":
         pct, _ = utils.compare_periods(k, pk, "diamonds_redeemed") if pk else (None, None)
         commission_pct = commission_by_agency.get(a)
         gross_usd, commission_due = calculate_sub_agency_earnings(k["diamonds_redeemed"], commission_pct)
+        agency_revenue = float(sub["my_earnings_usd"].sum()) if not sub.empty else 0.0
+        creator_revenue = float(sub["usd_earned"].sum()) if not sub.empty else 0.0
+        retention_value = utils.retention_rate(sub, sub_prev) if not sub_prev.empty else None
+        health_value = utils.broadcaster_health_score(sub, sub_prev)
         rows.append(dict(
             agency=a, broadcasters=k["broadcasters"], active=k["active"],
-            diamonds=k["diamonds_redeemed"], days=k["days_worked"], growth=pct,
+            new=int(sub["is_new"].sum()) if not sub.empty else 0,
+            diamonds_earned=float(sub["diamonds_earned"].sum()) if not sub.empty else 0,
+            diamonds=k["diamonds_redeemed"], days=k["days_worked"], hours=k["live_hours"], growth=pct,
             commission_pct=commission_pct, gross_usd=gross_usd, commission_due=commission_due,
+            creator_revenue=creator_revenue, agency_revenue=agency_revenue,
+            net_revenue=agency_revenue - float(commission_due or 0),
+            retention=retention_value, health=health_value,
         ))
     summary = pd.DataFrame(rows)
 
+    recruiter_summary = summary[summary["agency"] != "Agency Direct"].copy()
+    total_commission = float(recruiter_summary["commission_due"].fillna(0).sum()) if not recruiter_summary.empty else 0
+    rk1, rk2, rk3, rk4 = st.columns(4)
+    rk1.metric("Total recruiters", f"{len(agencies):,}")
+    rk2.metric("Recruiter-hired broadcasters", f"{int(recruiter_summary['broadcasters'].sum()):,}")
+    rk3.metric("Active recruiter broadcasters", f"{int(recruiter_summary['active'].sum()):,}")
+    rk4.metric("Recruiter diamonds", f"{float(recruiter_summary['diamonds'].sum()):,.0f}")
+    rk5, rk6, rk7, rk8 = st.columns(4)
+    rk5.metric("Gross Agency revenue", f"${float(recruiter_summary['agency_revenue'].sum()):,.2f}")
+    rk6.metric("Recruiter commission", f"${total_commission:,.2f}")
+    rk7.metric("Net Agency revenue", f"${float(recruiter_summary['net_revenue'].sum()):,.2f}")
+    best_recruiter = (recruiter_summary.sort_values("net_revenue", ascending=False).iloc[0]["agency"]
+                      if not recruiter_summary.empty else "—")
+    rk8.metric("Top recruiter", best_recruiter)
+
+    if not recruiter_summary.empty:
+        rc1, rc2 = st.columns(2)
+        revenue_compare = recruiter_summary.sort_values("net_revenue")
+        recruiter_fig = go.Figure(go.Bar(
+            x=revenue_compare["net_revenue"], y=revenue_compare["agency"], orientation="h",
+            marker_color="#3F6B1E", text=revenue_compare["net_revenue"], texttemplate="$%{text:,.0f}",
+            textposition="outside", hovertemplate="%{y}<br>Net Agency revenue: $%{x:,.2f}<extra></extra>",
+        ))
+        recruiter_fig.update_layout(title="Net Agency revenue by recruiter", height=330,
+                                    margin=dict(l=10, r=55, t=50, b=20), showlegend=False,
+                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                    xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
+        with rc1:
+            with st.container(border=True):
+                st.plotly_chart(recruiter_fig, width="stretch", config={"displayModeBar": False})
+        retention_chart = recruiter_summary.copy()
+        retention_chart["retention_display"] = retention_chart["retention"].fillna(0)
+        retention_fig = go.Figure(go.Bar(
+            x=retention_chart["agency"], y=retention_chart["retention_display"],
+            marker_color="#86A96B", text=retention_chart["retention_display"], texttemplate="%{text:.1f}%",
+            textposition="outside", hovertemplate="%{x}<br>Retention: %{y:.1f}%<extra></extra>",
+        ))
+        retention_fig.update_layout(title="Recruiter retention comparison", height=330,
+                                    margin=dict(l=20, r=20, t=50, b=20), showlegend=False,
+                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                    yaxis=dict(range=[0, 110], ticksuffix="%", gridcolor="#E8ECE5"), xaxis=dict(title=None))
+        with rc2:
+            with st.container(border=True):
+                st.plotly_chart(retention_fig, width="stretch", config={"displayModeBar": False})
+
     sort_choice = st.selectbox(
-        "Sort by", ["Diamonds", "Growth", "Active broadcasters", "Days streamed", "Broadcaster count"], key="sa_sort"
+        "Sort by", ["Net revenue", "Diamonds", "Retention", "Growth", "Active broadcasters", "Days streamed", "Broadcaster count"], key="sa_sort"
     )
-    sort_map = {"Diamonds": "diamonds", "Growth": "growth", "Active broadcasters": "active",
+    sort_map = {"Net revenue": "net_revenue", "Diamonds": "diamonds", "Retention": "retention",
+                "Growth": "growth", "Active broadcasters": "active",
                 "Days streamed": "days", "Broadcaster count": "broadcasters"}
     summary = summary.sort_values(sort_map[sort_choice], ascending=False, na_position="last")
 
@@ -1684,6 +1928,16 @@ elif st.session_state.page == "SubAgencies":
                 help=("Redeemed diamonds ÷ 200 × commission percentage"
                       if r["agency"] != "Agency Direct"
                       else "No Sub-Agency commission applies."),
+            )
+            d1, d2, d3, d4, d5 = st.columns(5)
+            d1.metric("New", int(r["new"]))
+            d2.metric("Streaming hours", f"{r['hours']:,.1f}")
+            d3.metric("Creator revenue", f"${r['creator_revenue']:,.2f}")
+            d4.metric("Agency revenue", f"${r['agency_revenue']:,.2f}")
+            d5.metric("Net Agency revenue", f"${r['net_revenue']:,.2f}")
+            st.caption(
+                f"Retention: **{f'{r['retention']:.1f}%' if pd.notna(r['retention']) else 'First period'}** · "
+                f"Health: **{int(r['health'])}/100** · Diamonds earned: **{r['diamonds_earned']:,.0f}**"
             )
 
             if r["agency"] != "Agency Direct":
@@ -1709,6 +1963,76 @@ elif st.session_state.page == "SubAgencies":
                         refresh_caches()
                         st.toast(f"Commission updated to {new_rate:g}%.", icon="\u2705")
                         st.rerun()
+
+    if agencies:
+        st.markdown("### Recruiter detail")
+        selected_recruiter = st.selectbox("Select recruiter", agencies, key="recruiter_detail")
+        recruiter_roster = utils.filter_by_agency(df, selected_recruiter).copy()
+        recruiter_prev = utils.filter_by_agency(df_prev, selected_recruiter) if not df_prev.empty else pd.DataFrame()
+        recruiter_roster = utils.diamonds_per_day(utils.add_growth_status(recruiter_roster, recruiter_prev))
+        selected_rate = commission_by_agency.get(selected_recruiter)
+        recruiter_trend_rows = []
+        for trend_month in sorted(monthly_periods)[-6:]:
+            month_rows = utils.filter_by_agency(period_data(trend_month, "monthly"), selected_recruiter)
+            month_kpis = utils.compute_kpis(month_rows)
+            _, month_commission = calculate_sub_agency_earnings(
+                month_kpis["diamonds_redeemed"], selected_rate
+            )
+            recruiter_trend_rows.append({
+                "Month": trend_month, "Diamonds": month_kpis["diamonds_redeemed"],
+                "Active": month_kpis["active"],
+                "Net Agency revenue": month_kpis["my_earnings_usd"] - float(month_commission or 0),
+            })
+        recruiter_trend = pd.DataFrame(recruiter_trend_rows)
+        if len(recruiter_trend) > 1:
+            rt_fig = make_subplots(specs=[[{"secondary_y": True}]])
+            rt_fig.add_trace(go.Scatter(
+                name="Diamonds", x=recruiter_trend["Month"], y=recruiter_trend["Diamonds"],
+                mode="lines+markers", line=dict(color="#3F6B1E", width=3),
+                hovertemplate="%{x}<br>%{y:,.0f} diamonds<extra></extra>",
+            ), secondary_y=False)
+            rt_fig.add_trace(go.Scatter(
+                name="Net Agency revenue", x=recruiter_trend["Month"],
+                y=recruiter_trend["Net Agency revenue"], mode="lines+markers",
+                line=dict(color="#E2812C", width=2.5),
+                hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
+            ), secondary_y=True)
+            rt_fig.update_layout(height=330, margin=dict(l=20, r=20, t=45, b=20),
+                                 hovermode="x unified", paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                 legend=dict(orientation="h", y=1.05))
+            rt_fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", secondary_y=False)
+            rt_fig.update_yaxes(title_text="Net revenue", tickprefix="$", showgrid=False, secondary_y=True)
+            with st.container(border=True):
+                st.plotly_chart(rt_fig, width="stretch", config={"displayModeBar": False})
+
+        recruiter_at_risk = (utils.at_risk_broadcasters(
+            utils.filter_by_agency(df, selected_recruiter), recruiter_prev
+        ) if not recruiter_prev.empty else recruiter_roster.iloc[0:0])
+        recruiter_target = utils.performance_target(
+            recruiter_roster["diamonds_redeemed"].sum(),
+            recruiter_prev["diamonds_redeemed"].sum() if not recruiter_prev.empty else 0,
+        )
+        rd1, rd2, rd3 = st.columns(3)
+        rd1.metric("Target progress", f"{recruiter_target['progress_pct']:.1f}%",
+                   f"Target {recruiter_target['target']:,.0f} diamonds")
+        rd2.metric("At-risk broadcasters", f"{len(recruiter_at_risk):,}")
+        rd3.metric("Retention", f"{utils.retention_rate(recruiter_roster, recruiter_prev):.1f}%"
+                   if not recruiter_prev.empty and utils.retention_rate(recruiter_roster, recruiter_prev) is not None
+                   else "First period")
+        detail_cols = ["broadcaster_name", "profile_url", "status", "is_new", "streaming_days",
+                       "streaming_hours", "diamonds_earned", "diamonds_redeemed", "usd_earned",
+                       "my_earnings_usd", "growth_pct"]
+        st.dataframe(recruiter_roster[detail_cols].sort_values("diamonds_redeemed", ascending=False),
+                     hide_index=True, width="stretch", column_config=table_column_config(detail_cols))
+        statement = recruiter_roster[detail_cols].copy()
+        statement["gross_redeemed_value"] = statement["diamonds_redeemed"] / DIAMONDS_PER_USD
+        statement["commission_pct"] = selected_rate
+        statement["commission_due"] = (statement["gross_redeemed_value"] * float(selected_rate) / 100
+                                       if selected_rate is not None else None)
+        st.download_button(
+            "Download recruiter statement", statement.to_csv(index=False).encode("utf-8"),
+            file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.csv", mime="text/csv",
+        )
 
 # ================================================================== ASSIGN
 elif st.session_state.page == "Assign":
