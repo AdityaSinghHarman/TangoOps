@@ -1707,20 +1707,17 @@ elif st.session_state.page == "CreateAgency":
         st.stop()
     create_agency_success = st.session_state.pop("_create_agency_success", None)
     if create_agency_success:
-        for form_key in (
-            "ca_name", "ca_contact", "ca_phone", "ca_commission_pct",
-            "ca_make_login", "ca_email", "ca_password", "ca_status", "ca_notes",
-        ):
-            st.session_state.pop(form_key, None)
         st.toast(create_agency_success, icon="\u2705")
+    form_version = int(st.session_state.get("ca_form_version", 0))
+    form_key = f"ca_{form_version}"
     st.title("Create Sub-Agency")
 
-    name = st.text_input("Agency name (e.g. Partner X)", key="ca_name")
-    contact = st.text_input("Contact person", key="ca_contact")
-    phone = st.text_input("Phone", key="ca_phone")
+    name = st.text_input("Agency name (e.g. Partner X)", key=f"{form_key}_name")
+    contact = st.text_input("Contact person", key=f"{form_key}_contact")
+    phone = st.text_input("Phone", key=f"{form_key}_phone")
     commission_pct = st.number_input(
         "Commission percentage", min_value=1.0, max_value=20.0, value=5.0,
-        step=0.1, format="%.2f", key="ca_commission_pct",
+        step=0.1, format="%.2f", key=f"{form_key}_commission_pct",
         help="The percentage of this Sub-Agency's redeemed diamond value that they receive.",
     )
     example_gross, example_commission = calculate_sub_agency_earnings(20_000, commission_pct)
@@ -1731,22 +1728,22 @@ elif st.session_state.page == "CreateAgency":
     )
 
     st.markdown("###### Login access")
-    make_login = st.checkbox("Also create a login for this partner", value=True, key="ca_make_login")
+    make_login = st.checkbox("Also create a login for this partner", value=True, key=f"{form_key}_make_login")
     login_email, password = "", ""
     if make_login:
         c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
         with c1:
-            login_email = st.text_input("Login email", key="ca_email")
+            login_email = st.text_input("Login email", key=f"{form_key}_email")
         with c2:
-            if st.button("Generate password", width="stretch"):
+            if st.button("Generate password", width="stretch", key=f"{form_key}_generate_password"):
                 alphabet = string.ascii_letters + string.digits
-                st.session_state.ca_password = "".join(pysecrets.choice(alphabet) for _ in range(10))
-        password = st.text_input("Password", key="ca_password")
+                st.session_state[f"{form_key}_password"] = "".join(pysecrets.choice(alphabet) for _ in range(10))
+        password = st.text_input("Password", key=f"{form_key}_password")
 
-    status = st.selectbox("Status", ["Active", "Inactive"], key="ca_status")
-    notes = st.text_area("Notes", key="ca_notes")
+    status = st.selectbox("Status", ["Active", "Inactive"], key=f"{form_key}_status")
+    notes = st.text_area("Notes", key=f"{form_key}_notes")
 
-    if st.button("Create Sub-Agency", type="primary", disabled=not name.strip()):
+    if st.button("Create Sub-Agency", type="primary", disabled=not name.strip(), key=f"{form_key}_submit"):
         if name.strip() in load_agencies(business_id):
             st.error("A Sub-Agency with this name already exists. Update its commission under Sub-Agency Management.")
             st.stop()
@@ -1778,6 +1775,7 @@ elif st.session_state.page == "CreateAgency":
             msg += f" Login created for {login_email.strip()}."
         refresh_caches()
         st.session_state["_create_agency_success"] = msg
+        st.session_state["ca_form_version"] = form_version + 1
         st.rerun()
 
     st.markdown("##### Existing Sub-Agencies")
