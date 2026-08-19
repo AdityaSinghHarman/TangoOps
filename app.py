@@ -274,6 +274,25 @@ def overview_kpi_card(label, value, icon, note="", direction=""):
     """, unsafe_allow_html=True)
 
 
+TABLE_COLUMN_CONFIG = {
+    "broadcaster_name": st.column_config.TextColumn("Broadcaster", width="medium"),
+    "sub_agency": st.column_config.TextColumn("Sub-agency", width="medium"),
+    "status": st.column_config.TextColumn("Status", width="small"),
+    "streaming_days": st.column_config.NumberColumn("Days streamed", format="%d", width="small"),
+    "streaming_hours": st.column_config.NumberColumn("Hours streamed", format="%.1f", width="small"),
+    "diamonds_redeemed": st.column_config.NumberColumn("Diamonds redeemed", format="localized", width="small"),
+    "diamonds_per_day": st.column_config.NumberColumn("Diamonds per day", format="localized", width="small"),
+    "growth_pct": st.column_config.NumberColumn("Growth vs previous month", format="%.1f%%", width="medium"),
+    "is_new": st.column_config.CheckboxColumn("New broadcaster", width="small"),
+    "profile_url": st.column_config.LinkColumn("Profile", display_text="Open profile", width="small"),
+}
+
+
+def table_column_config(columns):
+    """Return consistent, user-facing labels without renaming stored data."""
+    return {column: TABLE_COLUMN_CONFIG[column] for column in columns if column in TABLE_COLUMN_CONFIG}
+
+
 def is_valid_email(value: str) -> bool:
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value.strip()))
 
@@ -944,9 +963,11 @@ elif st.session_state.page == "Admin":
 
     if len(at_risk_df) > 0:
         with st.expander(f"{len(at_risk_df)} broadcaster(s) earned diamonds last period, streamed 0 days this period"):
+            at_risk_columns = ["broadcaster_name", "sub_agency"]
             st.dataframe(
-                at_risk_df[["broadcaster_name", "sub_agency"]].reset_index(drop=True),
+                at_risk_df[at_risk_columns].reset_index(drop=True),
                 hide_index=True, width='stretch',
+                column_config=table_column_config(at_risk_columns),
             )
 
     st.markdown("""
@@ -1007,12 +1028,7 @@ elif st.session_state.page == "Admin":
         with st.container(border=True):
             st.dataframe(
                 top5[cols], hide_index=True, width='stretch',
-                column_config={
-                    "broadcaster_name": st.column_config.TextColumn("Broadcaster"),
-                    "sub_agency": st.column_config.TextColumn("Sub-agency"),
-                    "diamonds_redeemed": st.column_config.NumberColumn("Diamonds redeemed", format="localized"),
-                    "streaming_days": st.column_config.NumberColumn("Days streamed", format="%d"),
-                },
+                column_config=table_column_config(cols),
             )
 
 # ================================================================ STATISTICS
@@ -1041,7 +1057,8 @@ elif st.session_state.page == "Statistics":
                      "streaming_hours", "diamonds_redeemed", "diamonds_per_day", "growth_pct", "is_new"]
         st.dataframe(
             df_current[show_cols].sort_values("diamonds_redeemed", ascending=False),
-            width='stretch', hide_index=True
+            width='stretch', hide_index=True,
+            column_config=table_column_config(show_cols),
         )
         st.download_button(
             "Export this view as CSV",
@@ -1100,6 +1117,7 @@ elif st.session_state.page == "Broadcasters":
     event = st.dataframe(
         view[show_cols], hide_index=True, width='stretch',
         on_select="rerun", selection_mode="single-row", key="bl_table",
+        column_config=table_column_config(show_cols),
     )
     rows = event.selection.rows if hasattr(event, "selection") else []
     if rows:
@@ -1237,10 +1255,11 @@ elif st.session_state.page == "Assign":
     only_unassigned = st.checkbox("Show only unassigned", value=True)
     view = df[df["sub_agency"] == "Unassigned"] if only_unassigned else df
 
+    assignment_columns = ["broadcaster_name", "profile_url", "sub_agency", "diamonds_redeemed"]
     st.dataframe(
-        view[["broadcaster_name", "profile_url", "sub_agency", "diamonds_redeemed"]]
-            .sort_values("diamonds_redeemed", ascending=False),
-        width='stretch', hide_index=True
+        view[assignment_columns].sort_values("diamonds_redeemed", ascending=False),
+        width='stretch', hide_index=True,
+        column_config=table_column_config(assignment_columns),
     )
 
     st.markdown("##### Assign selected")
@@ -1360,9 +1379,10 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         c3.metric("New", new_count)
         c4.metric("Need assignment", unassigned_count)
         st.caption(f"This updates **{period}** only. Other periods stay untouched.")
+        preview_columns = ["broadcaster_name", "diamonds_redeemed", "streaming_days"]
         st.dataframe(
-            clean_df[["broadcaster_name", "diamonds_redeemed", "streaming_days"]].head(10),
-            hide_index=True, width='stretch',
+            clean_df[preview_columns].head(10), hide_index=True, width='stretch',
+            column_config=table_column_config(preview_columns),
         )
 
         if st.button("Confirm upload", type="primary"):
@@ -1487,9 +1507,11 @@ elif st.session_state.page == "DataManagement":
                         st.rerun()
             if st.session_state.get(f"viewing_{ptype}") == p:
                 view_df = period_data(p, ptype)
+                period_columns = ["broadcaster_name", "sub_agency", "diamonds_redeemed", "streaming_days"]
                 st.dataframe(
-                    view_df[["broadcaster_name", "sub_agency", "diamonds_redeemed", "streaming_days"]],
+                    view_df[period_columns],
                     hide_index=True, width='stretch',
+                    column_config=table_column_config(period_columns),
                 )
 
     st.markdown("---")
