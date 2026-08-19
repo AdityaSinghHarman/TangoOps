@@ -139,6 +139,69 @@ st.markdown("""
 .insight-caption{ color:#727A6F; font-size:.76rem; margin-top:.35rem; }
 .stApp:has(.owner-overview-page) div[data-testid="stVerticalBlockBorderWrapper"]{ background:#FFFFFF; border-color:#E0E5DC; border-radius:1rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
 .stApp:has(.owner-overview-page) div[data-baseweb="select"] > div{ background:#FFFFFF; border-color:#D9E0D5; }
+
+/* Task-oriented Agency Owner sidebar — Option 3 */
+.owner-sidebar-marker{ display:none; }
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"]{
+  background:#FAFBF9; border-right:1px solid #DEE4DA;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{
+  padding-top:.75rem;
+}
+.owner-sidebar-brand{ display:flex; align-items:center; gap:.65rem; color:#174A19;
+  font-size:1.28rem; font-weight:780; letter-spacing:-.035em; padding:.25rem .2rem .9rem; }
+.owner-sidebar-logo{ width:1.9rem; height:1.9rem; display:grid; place-items:center; color:#fff;
+  background:#315E18; border-radius:.55rem; transform:rotate(45deg); }
+.owner-sidebar-logo span{ transform:rotate(-45deg); font-size:.72rem; }
+.owner-workspace{ display:flex; align-items:center; gap:.7rem; padding:.8rem; margin:0 0 .7rem;
+  background:#FFFFFF; border:1px solid #DDE3D9; border-radius:.85rem; }
+.owner-workspace-avatar{ flex:none; width:2.4rem; height:2.4rem; display:grid; place-items:center;
+  color:#315E18; background:#E7F1E1; border-radius:50%; font-weight:750; }
+.owner-workspace-copy{ min-width:0; line-height:1.25; }
+.owner-workspace-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color:#1B2419; font-size:.85rem; font-weight:700; }
+.owner-workspace-role{ color:#737B6F; font-size:.72rem; margin-top:.15rem; }
+.sidebar-group-marker{ display:none; }
+.sidebar-group-head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+  color:#6B7467; font-size:.69rem; font-weight:750; text-transform:uppercase;
+  letter-spacing:.09em; margin:.05rem .15rem .45rem; }
+.sidebar-due-badge{ color:#A75812; background:#FFF0DD; border:1px solid #F4D7B4;
+  border-radius:999px; padding:.17rem .42rem; font-size:.59rem; font-weight:750;
+  letter-spacing:0; text-transform:none; }
+.sidebar-ok-badge{ color:#34712A; background:#EAF3E4; border:1px solid #D6E7CD;
+  border-radius:999px; padding:.17rem .42rem; font-size:.59rem; font-weight:750;
+  letter-spacing:0; text-transform:none; }
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.sidebar-group-marker){
+  background:#FFFFFF; border-color:#E0E5DC; border-radius:.85rem; margin:.55rem 0;
+  box-shadow:0 1px 3px rgba(33,48,27,.025);
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.sidebar-profile-marker){
+  background:#FFFFFF; border-color:#DDE3D9; border-radius:.85rem; margin-top:.8rem;
+}
+.sidebar-profile-marker{ display:none; }
+.sidebar-profile{ display:flex; align-items:center; gap:.65rem; margin-bottom:.3rem; }
+.sidebar-profile-copy{ min-width:0; line-height:1.25; }
+.sidebar-profile-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color:#20281E; font-size:.79rem; font-weight:700; }
+.sidebar-profile-role{ color:#737B6F; font-size:.68rem; margin-top:.12rem; }
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button{
+  min-height:2.55rem; padding:.45rem .65rem; border-radius:.62rem; font-size:.82rem;
+  color:#273124; background:transparent; border:1px solid transparent;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button:hover{
+  color:#315E18; background:#F0F5EC; border-color:#E0EADB;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button[kind="primary"],
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
+  color:#315E18 !important; background:#E9F2E3 !important; border-color:#DCE9D5 !important;
+  box-shadow:inset 3px 0 0 #315E18 !important; font-weight:700;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] details{
+  background:#FFFFFF; border:1px solid #E0E5DC; border-radius:.85rem; margin:.55rem 0;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] details summary{
+  min-height:2.7rem; color:#315E18; font-size:.82rem; font-weight:700;
+}
 @media (max-width: 800px){
   .overview-hero{ align-items:flex-start; flex-direction:column; gap:.8rem; }
   .overview-hero h1{ font-size:1.9rem; }
@@ -353,50 +416,112 @@ if "selected_profile_url" not in st.session_state:
     st.session_state.selected_profile_url = None
 
 
-def nav_button(label, page_key):
-    if st.sidebar.button(label, width='stretch',
-                          type="primary" if st.session_state.page == page_key else "secondary"):
+def nav_button(label, page_key, icon=None):
+    if st.button(label, width='stretch', icon=icon,
+                 type="primary" if st.session_state.page == page_key else "secondary"):
         st.session_state.page = page_key
         st.rerun()
 
 
 with st.sidebar:
-    st.markdown("### \u25c8 TangoOps")
-    st.caption("AGENCY CONTROL")
-    if business_name:
-        st.caption(business_name)
-    st.write("")
+    if is_owner:
+        st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="owner-sidebar-brand">
+          <div class="owner-sidebar-logo"><span>◆</span></div>TangoOps
+        </div>
+        """, unsafe_allow_html=True)
+        owner_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "AO"
+        safe_business_name = html.escape(str(business_name))
+        safe_display_name = html.escape(str(display_name))
+        st.markdown(f"""
+        <div class="owner-workspace">
+          <div class="owner-workspace-avatar">{owner_initials}</div>
+          <div class="owner-workspace-copy">
+            <div class="owner-workspace-name">{safe_business_name}</div>
+            <div class="owner-workspace-role">Business Owner</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        nav_button("Overview", "Admin", ":material/dashboard:")
+        nav_button("Statistics", "Statistics", ":material/bar_chart:")
+
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-group-head"><span>Manage</span></div>', unsafe_allow_html=True)
+            nav_button("Broadcasters", "Broadcasters", ":material/groups:")
+            nav_button("Assign broadcasters", "Assign", ":material/person_add:")
+            nav_button("Sub-agency management", "SubAgencies", ":material/account_tree:")
+            nav_button("Create sub-agency", "CreateAgency", ":material/domain_add:")
+
+        current_month_key = dt.date.today().strftime("%Y-%m")
+        monthly_uploads = store.list_periods("monthly", business_id)
+        upload_is_due = current_month_key not in monthly_uploads
+        upload_badge_class = "sidebar-due-badge" if upload_is_due else "sidebar-ok-badge"
+        upload_badge_text = "Upload due" if upload_is_due else "Up to date"
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="sidebar-group-head"><span>Reports</span>'
+                f'<span class="{upload_badge_class}">{upload_badge_text}</span></div>',
+                unsafe_allow_html=True,
+            )
+            nav_button("Monthly report", "UploadMonthly", ":material/upload_file:")
+            nav_button("Daily report", "UploadDaily", ":material/description:")
+
+        admin_expanded = st.session_state.page in ("UserAccess", "DataManagement")
+        with st.expander("Administration", expanded=admin_expanded, icon=":material/admin_panel_settings:"):
+            nav_button("User access", "UserAccess", ":material/manage_accounts:")
+            nav_button("Data management", "DataManagement", ":material/database:")
+
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-profile-marker"></div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="sidebar-profile">
+              <div class="owner-workspace-avatar">{owner_initials}</div>
+              <div class="sidebar-profile-copy">
+                <div class="sidebar-profile-name">{safe_display_name}</div>
+                <div class="sidebar-profile-role">{safe_business_name} · Owner</div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+            nav_button("My profile", "MyProfile", ":material/account_circle:")
+            authenticator.logout("Sign out", "sidebar")
+
+    else:
+        st.markdown("### \u25c8 TangoOps")
+        st.caption("AGENCY CONTROL")
+        if business_name:
+            st.caption(business_name)
+        st.write("")
+
     if is_platform_admin:
         nav_button("Agencies", "Businesses")
-    elif is_owner:
-        nav_button("Admin", "Admin")
-        nav_button("Statistics", "Statistics")
-        st.caption("BROADCASTERS")
-        nav_button("Broadcasters", "Broadcasters")
-        nav_button("Assign broadcasters", "Assign")
-        st.caption("SUB-AGENCIES")
-        nav_button("Sub-agency management", "SubAgencies")
-        nav_button("Create sub-agency", "CreateAgency")
-        st.caption("UPLOAD REPORTS")
-        nav_button("Monthly report", "UploadMonthly")
-        nav_button("Daily report", "UploadDaily")
-        st.caption("ADMINISTRATION")
-        nav_button("User access", "UserAccess")
-        nav_button("Data management", "DataManagement")
-    else:
+        st.write("")
+        nav_button("My profile", "MyProfile")
+        if avatar_b64:
+            st.markdown(
+                f'<img src="data:image/png;base64,{avatar_b64}" '
+                f'style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-bottom:6px;">',
+                unsafe_allow_html=True,
+            )
+        st.caption(f"Signed in as **{display_name}**")
+        authenticator.logout("Sign out", "sidebar")
+    elif is_sub_agency:
         nav_button("Dashboard", "Admin")
         nav_button("My broadcasters", "Broadcasters")
         nav_button("Upload report", "UploadMonthly")
-    st.write("")
-    nav_button("My profile", "MyProfile")
-    if avatar_b64:
-        st.markdown(
-            f'<img src="data:image/png;base64,{avatar_b64}" '
-            f'style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-bottom:6px;">',
-            unsafe_allow_html=True,
-        )
-    st.caption(f"Signed in as **{display_name}**")
-    authenticator.logout("Sign out", "sidebar")
+        st.write("")
+        nav_button("My profile", "MyProfile")
+        if avatar_b64:
+            st.markdown(
+                f'<img src="data:image/png;base64,{avatar_b64}" '
+                f'style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-bottom:6px;">',
+                unsafe_allow_html=True,
+            )
+        st.caption(f"Signed in as **{display_name}**")
+        authenticator.logout("Sign out", "sidebar")
 
 # --------------------------------------------------------- shared loaders --
 @st.cache_data(ttl=60, show_spinner=False)
