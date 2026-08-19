@@ -358,6 +358,10 @@ def build_credentials():
             (users_df["status"] == "Active") & (users_df["business_id"].isin(active_business_ids))
         ]
         for _, row in active.iterrows():
+            # A tenant login must never replace or impersonate the bootstrap
+            # Platform Admin identity, including case-only email variations.
+            if str(row["username"]).strip().lower() == str(boot["username"]).strip().lower():
+                continue
             creds["usernames"][row["username"]] = {
                 "name": row["name"], "email": row["username"], "password": row["password_hash"]
             }
@@ -365,6 +369,11 @@ def build_credentials():
 
 
 credentials, bootstrap_username = build_credentials()
+
+
+def is_bootstrap_identity(value: str) -> bool:
+    """Return True when a tenant login collides with the reserved admin identity."""
+    return bool(value) and value.strip().lower() == str(bootstrap_username).strip().lower()
 authenticator = stauth.Authenticate(
     credentials,
     st.secrets["cookie"]["name"],
@@ -443,15 +452,28 @@ def current_user_context():
         return "platform_admin", None, None
     users_df = load_all_users_df()
     if users_df.empty:
-        return "platform_admin", None, None
+        return None, None, None
     row = users_df[users_df["username"] == username]
     if row.empty:
-        return "platform_admin", None, None
+        return None, None, None
     r = row.iloc[0]
+    if r["role"] not in ("owner", "sub_agency") or r["status"] != "Active":
+        return None, None, None
+    businesses_df = load_businesses_df()
+    active_business = businesses_df[
+        (businesses_df["business_id"] == r["business_id"]) & (businesses_df["status"] == "Active")
+    ] if not businesses_df.empty else pd.DataFrame()
+    if active_business.empty:
+        return None, None, None
     return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
 
 
 user_role, user_business_id, user_agency = current_user_context()
+if user_role is None:
+    st.error("This login session is no longer valid or does not have an active TangoOps role.")
+    st.warning("For security, no platform or agency data has been loaded. Sign out, then sign in with an active account.")
+    authenticator.logout("Sign out and return to login", "main")
+    st.stop()
 is_platform_admin = user_role == "platform_admin"
 is_owner = user_role == "owner"
 is_sub_agency = user_role == "sub_agency"
@@ -846,6 +868,9 @@ if st.session_state.page == "Businesses":
             if st.button("Create agency", type="primary", disabled=not biz_name.strip(), width="stretch"):
                 if not is_valid_email(owner_email):
                     st.error("Enter a valid owner email address.")
+                    st.stop()
+                if is_bootstrap_identity(owner_email):
+                    st.error("That email is reserved for the Platform Administrator. Use a different owner email.")
                     st.stop()
                 if not owner_password.strip():
                     st.error("Enter a temporary password, or generate one.")
@@ -1718,6 +1743,9 @@ elif st.session_state.page == "CreateAgency":
             if not is_valid_email(login_email):
                 st.error("Enter a valid login email to also create a login.")
                 st.stop()
+            if is_bootstrap_identity(login_email):
+                st.error("That email is reserved for the Platform Administrator. Use a different Sub-Agency login.")
+                st.stop()
             if not password.strip():
                 st.error("Enter a password (or generate one) to also create a login.")
                 st.stop()
@@ -1840,6 +1868,8 @@ elif st.session_state.page == "UserAccess":
     if st.button("Create user", type="primary"):
         if not is_valid_email(new_email):
             st.error("Enter a valid email address.")
+        elif is_bootstrap_identity(new_email):
+            st.error("That email is reserved for the Platform Administrator. Use a different user email.")
         elif not new_password.strip():
             st.error("Password is required.")
         elif new_role == "sub_agency" and not new_agency:
