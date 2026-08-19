@@ -6,6 +6,7 @@ import secrets as pysecrets
 import string
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit_authenticator as stauth
@@ -423,6 +424,29 @@ if not was_authenticated:
                     unsafe_allow_html=True)
 
 auth_status = st.session_state.get("authentication_status")
+
+# Streamlit keeps browser fragments across sign-out/sign-in because the app is
+# a single-page session. Tenant names are not routing keys, so remove any stale
+# fragment on every run instead of allowing a previous agency name to remain in
+# the address bar after an identity change.
+components.html(
+    """
+    <script>
+      try {
+        const parentUrl = window.parent.location;
+        if (parentUrl.hash) {
+          window.parent.history.replaceState(
+            null, "", parentUrl.pathname + parentUrl.search
+          );
+        }
+      } catch (error) {
+        // URL cleanup is cosmetic; authentication remains enforced server-side.
+      }
+    </script>
+    """,
+    height=0,
+    width=0,
+)
 
 if auth_status is True and not was_authenticated:
     st.rerun()
