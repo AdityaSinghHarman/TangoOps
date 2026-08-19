@@ -9,6 +9,8 @@ TABLES = (
     "assignment_log", "archived_periods", "profiles", "security_audit",
 )
 SEQUENCES = ("raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq")
+TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
+SEQUENCE_PRIVILEGES = ("USAGE", "SELECT")
 
 
 def main():
@@ -30,19 +32,21 @@ def main():
                 raise SystemExit("Unable to inspect the configured database role.")
             unsafe = any(bool(value) for value in role[1:])
             for table in TABLES:
-                cur.execute(
-                    "SELECT has_table_privilege(current_user, %s, 'SELECT,INSERT,UPDATE,DELETE')",
-                    (f"public.{table}",),
-                )
-                if not cur.fetchone()[0]:
-                    raise SystemExit(f"Missing runtime permissions on public.{table}.")
+                for privilege in TABLE_PRIVILEGES:
+                    cur.execute(
+                        "SELECT has_table_privilege(current_user, %s, %s)",
+                        (f"public.{table}", privilege),
+                    )
+                    if not cur.fetchone()[0]:
+                        raise SystemExit(f"Missing {privilege} on public.{table}.")
             for sequence in SEQUENCES:
-                cur.execute(
-                    "SELECT has_sequence_privilege(current_user, %s, 'USAGE,SELECT')",
-                    (f"public.{sequence}",),
-                )
-                if not cur.fetchone()[0]:
-                    raise SystemExit(f"Missing runtime permissions on public.{sequence}.")
+                for privilege in SEQUENCE_PRIVILEGES:
+                    cur.execute(
+                        "SELECT has_sequence_privilege(current_user, %s, %s)",
+                        (f"public.{sequence}", privilege),
+                    )
+                    if not cur.fetchone()[0]:
+                        raise SystemExit(f"Missing {privilege} on public.{sequence}.")
             cur.execute("SELECT COUNT(*) FROM public.businesses")
             cur.fetchone()
         conn.rollback()

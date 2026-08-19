@@ -164,6 +164,9 @@ RUNTIME_SEQUENCES = (
     "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq",
 )
 
+RUNTIME_TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
+RUNTIME_SEQUENCE_PRIVILEGES = ("USAGE", "SELECT")
+
 
 def _verify_runtime_permissions(conn):
     """Fail safely when the configured role lacks TangoOps runtime access."""
@@ -175,24 +178,26 @@ def _verify_runtime_permissions(conn):
             if cur.fetchone()[0] is None:
                 missing.append(f"missing table {qualified}")
                 continue
-            cur.execute(
-                "SELECT has_table_privilege(current_user, %s, 'SELECT,INSERT,UPDATE,DELETE')",
-                (qualified,),
-            )
-            if not cur.fetchone()[0]:
-                missing.append(f"DML permission on {qualified}")
+            for privilege in RUNTIME_TABLE_PRIVILEGES:
+                cur.execute(
+                    "SELECT has_table_privilege(current_user, %s, %s)",
+                    (qualified, privilege),
+                )
+                if not cur.fetchone()[0]:
+                    missing.append(f"{privilege} permission on {qualified}")
         for sequence in RUNTIME_SEQUENCES:
             qualified = f"public.{sequence}"
             cur.execute("SELECT to_regclass(%s)", (qualified,))
             if cur.fetchone()[0] is None:
                 missing.append(f"missing sequence {qualified}")
                 continue
-            cur.execute(
-                "SELECT has_sequence_privilege(current_user, %s, 'USAGE,SELECT')",
-                (qualified,),
-            )
-            if not cur.fetchone()[0]:
-                missing.append(f"sequence permission on {qualified}")
+            for privilege in RUNTIME_SEQUENCE_PRIVILEGES:
+                cur.execute(
+                    "SELECT has_sequence_privilege(current_user, %s, %s)",
+                    (qualified, privilege),
+                )
+                if not cur.fetchone()[0]:
+                    missing.append(f"{privilege} permission on {qualified}")
     if missing:
         raise RuntimeError(
             "The configured database role is missing required TangoOps runtime access: "
