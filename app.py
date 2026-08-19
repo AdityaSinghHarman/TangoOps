@@ -45,9 +45,10 @@ st.markdown("""
   line-height:1.7; margin:0; }
 .tango-login-proof{ display:flex; gap:1.6rem; flex-wrap:wrap; margin-top:2.25rem;
   color:#42503F; font-size:.88rem; font-weight:600; }
-.tango-login-proof span::before{ content:'\2713'; display:inline-grid; place-items:center;
+.tango-login-proof span{ display:inline-flex; align-items:center; white-space:nowrap; }
+.tango-login-proof span::before{ content:'✓'; display:inline-grid; place-items:center;
   width:1.25rem; height:1.25rem; margin-right:.45rem; color:#39751C;
-  background:#E6F2DE; border-radius:50%; }
+  background:#E6F2DE; border-radius:50%; font-size:.72rem; font-weight:800; }
 .tango-login-panel-head{ margin:0 0 1.5rem; }
 .tango-login-panel-head h2{ color:#172016; font-size:1.85rem; line-height:1.2;
   letter-spacing:-.035em; margin:0 0 .45rem; }
@@ -59,7 +60,8 @@ st.markdown("""
   box-shadow:0 24px 70px rgba(36,61,22,.12),0 3px 12px rgba(28,29,26,.04);
 }
 .stApp:has(.tango-login-shell) div[data-testid="stForm"]{ border:0; padding:0; }
-.stApp:has(.tango-login-shell) div[data-testid="stForm"] h2{ display:none; }
+.stApp:has(.tango-login-shell) div[data-testid="stForm"] h2,
+.stApp:has(.tango-login-shell) div[data-testid="stForm"] h3{ display:none; }
 .stApp:has(.tango-login-shell) div[data-testid="stTextInput"] label{
   color:#293326; font-size:.84rem; font-weight:650;
 }
@@ -69,14 +71,24 @@ st.markdown("""
 .stApp:has(.tango-login-shell) div[data-baseweb="input"]:focus-within{
   border-color:#54842F; box-shadow:0 0 0 3px rgba(84,132,47,.14);
 }
-.stApp:has(.tango-login-shell) div[data-testid="stForm"] button{
+.stApp:has(.tango-login-shell) div[data-testid="stFormSubmitButton"]{ width:100%; }
+.stApp:has(.tango-login-shell) div[data-testid="stFormSubmitButton"] button{
   width:100%; min-height:3rem; margin-top:.7rem; color:#fff; font-weight:700;
   background:linear-gradient(135deg,#315E18,#4F812B); border:0; border-radius:.7rem;
   box-shadow:0 8px 18px rgba(49,94,24,.19);
 }
-.stApp:has(.tango-login-shell) div[data-testid="stForm"] button:hover{
+.stApp:has(.tango-login-shell) div[data-testid="stFormSubmitButton"] button:hover{
   color:#fff; background:linear-gradient(135deg,#274F12,#416F22);
   box-shadow:0 10px 22px rgba(49,94,24,.25); transform:translateY(-1px);
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"] button{
+  width:2.8rem !important; min-width:2.8rem; min-height:2.75rem; margin:0 !important;
+  padding:0 !important; color:#52604E !important; background:transparent !important;
+  border:0 !important; border-left:1px solid #E1E6DE !important; border-radius:0 !important;
+  box-shadow:none !important; transform:none !important;
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"] button:hover{
+  color:#315E18 !important; background:#F0F5EC !important; box-shadow:none !important;
 }
 .stApp:has(.tango-login-shell) div[data-testid="stAlert"]{ border-radius:.7rem; }
 
