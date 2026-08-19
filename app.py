@@ -297,6 +297,16 @@ def is_valid_email(value: str) -> bool:
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value.strip()))
 
 
+DIAMONDS_PER_USD = 200
+
+
+def calculate_sub_agency_earnings(diamonds_redeemed, commission_pct):
+    """Return (gross USD value, sub-agency commission) for redeemed diamonds."""
+    gross_usd = float(diamonds_redeemed or 0) / DIAMONDS_PER_USD
+    commission_usd = None if commission_pct is None else gross_usd * float(commission_pct) / 100
+    return gross_usd, commission_usd
+
+
 # ---------------------------------------------------------------- auth -----
 @st.cache_data(ttl=30, show_spinner=False)
 def load_all_users_df():
@@ -946,6 +956,11 @@ elif st.session_state.page == "Admin":
     prev_kpis = utils.compute_kpis(df_previous) if not df_previous.empty else {}
     n_agencies = max(1, len(load_agencies(business_id))) if is_owner else 1
     avg_dpb = round(kpis["diamonds_redeemed"] / kpis["broadcasters"], 1) if kpis["broadcasters"] else 0
+    sub_commission_pct = (store.get_agency_commission(business_id, user_agency)
+                          if is_sub_agency else None)
+    sub_gross_usd, sub_commission_usd = calculate_sub_agency_earnings(
+        kpis["diamonds_redeemed"], sub_commission_pct
+    )
 
     def overview_delta(metric):
         if not prev_kpis:
@@ -972,9 +987,17 @@ elif st.session_state.page == "Admin":
                           diamond_note, diamond_direction)
     c4, c5, c6 = st.columns(3)
     with c4:
-        earnings_label = "Agency earnings" if is_owner else "My roster earnings"
-        overview_kpi_card(earnings_label, f"${kpis['my_earnings_usd']:,.2f}", "$",
-                          earning_note, earning_direction)
+        if is_owner:
+            overview_kpi_card("Agency earnings", f"${kpis['my_earnings_usd']:,.2f}", "$",
+                              earning_note, earning_direction)
+        elif sub_commission_usd is None:
+            overview_kpi_card("Commission earnings", "Not set", "$",
+                              "Ask the agency owner to set your commission rate")
+        else:
+            overview_kpi_card(
+                "Commission earnings", f"${sub_commission_usd:,.2f}", "$",
+                f"{sub_commission_pct:g}% of ${sub_gross_usd:,.2f} redeemed value",
+            )
     with c5:
         overview_kpi_card("Days streamed", f"{kpis['days_worked']:,}", "◷",
                           days_note, days_direction)
@@ -1268,6 +1291,11 @@ elif st.session_state.page == "SubAgencies":
     df_prev = period_data(prev_period, "monthly") if prev_period else pd.DataFrame()
 
     agencies = load_agencies(business_id)
+    agency_details = store.get_agency_details(business_id)
+    commission_by_agency = {
+        row["agency_name"]: (None if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
+        for _, row in agency_details.iterrows()
+    }
     rows = []
     for a in agencies + ["Unassigned"]:
         sub = utils.filter_by_agency(df, a)
@@ -1275,8 +1303,13 @@ elif st.session_state.page == "SubAgencies":
         k = utils.compute_kpis(sub)
         pk = utils.compute_kpis(sub_prev) if not sub_prev.empty else {}
         pct, _ = utils.compare_periods(k, pk, "diamonds_redeemed") if pk else (None, None)
-        rows.append(dict(agency=a, broadcasters=k["broadcasters"], active=k["active"],
-                          diamonds=k["diamonds_redeemed"], days=k["days_worked"], growth=pct))
+        commission_pct = commission_by_agency.get(a)
+        gross_usd, commission_due = calculate_sub_agency_earnings(k["diamonds_redeemed"], commission_pct)
+        rows.append(dict(
+            agency=a, broadcasters=k["broadcasters"], active=k["active"],
+            diamonds=k["diamonds_redeemed"], days=k["days_worked"], growth=pct,
+            commission_pct=commission_pct, gross_usd=gross_usd, commission_due=commission_due,
+        ))
     summary = pd.DataFrame(rows)
 
     sort_choice = st.selectbox(
@@ -1288,16 +1321,47 @@ elif st.session_state.page == "SubAgencies":
 
     for _, r in summary.iterrows():
         with st.container(border=True):
-            gcol, bcol = st.columns([3, 1])
+            gcol, bcol = st.columns([3, 1], vertical_alignment="center")
             gcol.markdown(f"**{r['agency']}**")
             if r["growth"] is not None:
                 arrow = "\u25b2" if r["growth"] >= 0 else "\u25bc"
                 bcol.markdown(f"{arrow} {r['growth']}%")
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("Broadcasters", r["broadcasters"])
             m2.metric("Active", r["active"])
             m3.metric("Diamonds", f"{r['diamonds']:,}")
             m4.metric("Days", r["days"])
+            commission_value = r["commission_due"]
+            m5.metric(
+                "Commission due",
+                "—" if pd.isna(commission_value) else f"${commission_value:,.2f}",
+                help=("Redeemed diamonds ÷ 200 × commission percentage" if r["agency"] != "Unassigned"
+                      else "Unassigned broadcasters do not have a sub-agency commission."),
+            )
+
+            if r["agency"] != "Unassigned":
+                rate_value = r["commission_pct"]
+                rate_text = "Not set" if pd.isna(rate_value) else f"{rate_value:g}%"
+                st.caption(
+                    f"Commission rate: **{rate_text}** · Redeemed value: **${r['gross_usd']:,.2f}** "
+                    f"(diamonds ÷ {DIAMONDS_PER_USD})"
+                )
+                with st.popover("Update commission", use_container_width=False):
+                    new_rate = st.number_input(
+                        "Commission percentage", min_value=1.0, max_value=20.0,
+                        value=float(rate_value) if not pd.isna(rate_value) else 5.0,
+                        step=0.1, format="%.2f", key=f"commission_{r['agency']}",
+                    )
+                    example_gross, example_due = calculate_sub_agency_earnings(20_000, new_rate)
+                    st.caption(
+                        f"Example: 20,000 diamonds = ${example_gross:,.2f}; "
+                        f"{new_rate:g}% commission = ${example_due:,.2f}."
+                    )
+                    if st.button("Save commission", type="primary", key=f"save_commission_{r['agency']}"):
+                        store.update_agency_commission(business_id, r["agency"], new_rate)
+                        refresh_caches()
+                        st.toast(f"Commission updated to {new_rate:g}%.", icon="\u2705")
+                        st.rerun()
 
 # ================================================================== ASSIGN
 elif st.session_state.page == "Assign":
@@ -1355,6 +1419,17 @@ elif st.session_state.page == "CreateAgency":
     name = st.text_input("Agency name (e.g. Partner X)", key="ca_name")
     contact = st.text_input("Contact person", key="ca_contact")
     phone = st.text_input("Phone", key="ca_phone")
+    commission_pct = st.number_input(
+        "Commission percentage", min_value=1.0, max_value=20.0, value=5.0,
+        step=0.1, format="%.2f", key="ca_commission_pct",
+        help="The percentage of this sub-agency's redeemed diamond value that they receive.",
+    )
+    example_gross, example_commission = calculate_sub_agency_earnings(20_000, commission_pct)
+    st.info(
+        f"Calculation example: **20,000 diamonds ÷ {DIAMONDS_PER_USD} = ${example_gross:,.2f}** "
+        f"redeemed value. At **{commission_pct:g}%**, the sub-agency earns "
+        f"**${example_commission:,.2f}**."
+    )
 
     st.markdown("###### Login access")
     make_login = st.checkbox("Also create a login for this partner", value=True, key="ca_make_login")
@@ -1374,8 +1449,9 @@ elif st.session_state.page == "CreateAgency":
     notes = st.text_area("Notes", key="ca_notes")
 
     if st.button("Create sub-agency", type="primary", disabled=not name.strip()):
-        store.add_agency(name.strip(), business_id)
-        msg = f"Created sub-agency {name.strip()}."
+        if name.strip() in load_agencies(business_id):
+            st.error("A sub-agency with this name already exists. Update its commission under Sub-agency management.")
+            st.stop()
         if make_login:
             if not is_valid_email(login_email):
                 st.error("Enter a valid login email to also create a login.")
@@ -1383,6 +1459,13 @@ elif st.session_state.page == "CreateAgency":
             if not password.strip():
                 st.error("Enter a password (or generate one) to also create a login.")
                 st.stop()
+            if store.username_taken(login_email.strip()):
+                st.error("That login email is already registered on this platform.")
+                st.stop()
+
+        store.add_agency(name.strip(), business_id, commission_pct)
+        msg = f"Created sub-agency {name.strip()} with a {commission_pct:g}% commission."
+        if make_login:
             ok, m = store.create_user(
                 login_email.strip(), contact.strip() or name.strip(),
                 password, "sub_agency", business_id, name.strip(),
@@ -1396,8 +1479,14 @@ elif st.session_state.page == "CreateAgency":
         st.success(msg)
 
     st.markdown("##### Existing sub-agencies")
-    for a in load_agencies(business_id):
-        st.write(f"\u2022 {a}")
+    existing_agencies = store.get_agency_details(business_id)
+    if existing_agencies.empty:
+        st.caption("No sub-agencies created yet.")
+    else:
+        for _, agency_row in existing_agencies.iterrows():
+            existing_rate = agency_row["commission_pct"]
+            rate_label = "Not set" if pd.isna(existing_rate) else f"{float(existing_rate):g}%"
+            st.write(f"\u2022 **{agency_row['agency_name']}** · Commission: **{rate_label}**")
 
 # ============================================================ UPLOAD REPORTS
 elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
