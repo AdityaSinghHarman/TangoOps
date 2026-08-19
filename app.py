@@ -1794,11 +1794,18 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     if not is_owner and ptype == "daily":
         st.error("Owner access only.")
         st.stop()
+    upload_success_key = f"_upload_success_{ptype}"
+    upload_success = st.session_state.pop(upload_success_key, None)
+    if upload_success:
+        st.toast(upload_success, icon="\u2705")
+    upload_form_version_key = f"upload_form_version_{ptype}"
+    upload_form_version = int(st.session_state.get(upload_form_version_key, 0))
+    upload_form_key = f"upload_{ptype}_{upload_form_version}"
     st.title(f"Upload {ptype} report")
     st.caption("Uploading again for the same period replaces that period's numbers. Other periods are untouched.")
 
     default_period = dt.date.today().strftime("%Y-%m") if ptype == "monthly" else dt.date.today().isoformat()
-    period_key = f"period_{ptype}"
+    period_key = f"{upload_form_key}_period"
     if period_key not in st.session_state:
         st.session_state[period_key] = default_period
     period = st.text_input(
@@ -1811,7 +1818,9 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     if period and not valid_period:
         st.error("Period format looks off. Use YYYY-MM for monthly (e.g. 2026-08) or YYYY-MM-DD for daily.")
 
-    uploaded = st.file_uploader("Tango referral_statistics CSV", type=["csv"], key=f"uploader_{ptype}")
+    uploaded = st.file_uploader(
+        "Tango referral_statistics CSV", type=["csv"], key=f"{upload_form_key}_file"
+    )
 
     if uploaded is not None and valid_period:
         try:
@@ -1842,7 +1851,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
             column_config=table_column_config(preview_columns),
         )
 
-        if st.button("Confirm upload", type="primary"):
+        if st.button("Confirm upload", type="primary", key=f"{upload_form_key}_confirm"):
             store.save_period(clean_df, period.strip(), ptype, business_id)
             if not is_owner:
                 unassigned_here = [u for u in clean_df["profile_url"] if u not in assigned_urls]
@@ -1852,7 +1861,8 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
             note = f"Saved {len(clean_df)} broadcasters for {period} ({ptype})."
             if is_owner and unassigned_count > 0:
                 note += f" {unassigned_count} still need assignment."
-            st.toast(note, icon="\u2705")
+            st.session_state[upload_success_key] = note
+            st.session_state[upload_form_version_key] = upload_form_version + 1
             st.rerun()
 
 # =============================================================== USER ACCESS
