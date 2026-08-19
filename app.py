@@ -789,6 +789,19 @@ if st.session_state.page == "Businesses":
         st.success("Database security: Restricted runtime access is active. Administrator privileges are disabled.")
     else:
         st.warning("Database security: The application connection still has elevated database privileges.")
+    elevated_database_flags = [
+        label for key, label in (
+            ("superuser", "superuser"),
+            ("create_database", "create database"),
+            ("create_role", "create role"),
+            ("replication", "replication"),
+            ("bypass_rls", "bypass RLS"),
+        ) if database_posture[key]
+    ]
+    st.caption(
+        f"Connected database role: {database_posture['role']} · "
+        f"Elevated flags: {', '.join(elevated_database_flags) if elevated_database_flags else 'none'}"
+    )
     st.caption("Security release: restricted-db-v1")
 
     businesses = store.get_businesses()
@@ -885,7 +898,7 @@ if st.session_state.page == "Businesses":
                                   showarrow=False, font=dict(size=16, color="#172016"))],
             )
             with st.container(border=True):
-                st.plotly_chart(health_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(health_fig, use_container_width=True, config={"displayModeBar": False})
 
     recent_platform_activity = store.get_recent_platform_activity(8)
     if not recent_platform_activity.empty:
@@ -1305,7 +1318,7 @@ elif st.session_state.page == "Admin":
             font=dict(family="Inter", color="#4C5548"),
         )
         with st.container(border=True):
-            st.plotly_chart(mix_chart, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(mix_chart, use_container_width=True, config={"displayModeBar": False})
             st.caption(
                 "Agency Direct uses My Earnings (USD) from the uploaded Tango report. "
                 "Sub-Agency net deducts commission (redeemed diamonds ÷ 200 × saved rate) "
@@ -1469,7 +1482,7 @@ elif st.session_state.page == "Admin":
                     font=dict(family="Inter", color="#4C5548"), showlegend=False,
                 )
                 with st.container(border=True):
-                    st.plotly_chart(compare_fig, width="stretch", config={"displayModeBar": False})
+                    st.plotly_chart(compare_fig, use_container_width=True, config={"displayModeBar": False})
                     fc1, fc2 = st.columns(2)
                     fc1.metric("Forecast commission", f"${comparison['Commission due'].sum():,.2f}")
                     fc2.metric("Redeemed value", f"${comparison['Gross value'].sum():,.2f}")
@@ -1524,7 +1537,7 @@ elif st.session_state.page == "Admin":
         fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
-            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         financial_left, lifecycle_right = st.columns(2)
         financial_fig = go.Figure()
         financial_fig.add_trace(go.Scatter(
@@ -1545,7 +1558,7 @@ elif st.session_state.page == "Admin":
         )
         with financial_left:
             with st.container(border=True):
-                st.plotly_chart(financial_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(financial_fig, use_container_width=True, config={"displayModeBar": False})
         lifecycle_df = utils.add_growth_status(df_current, df_previous)
         lifecycle_counts = lifecycle_df["status"].value_counts()
         lifecycle_fig = go.Figure(go.Bar(
@@ -1559,7 +1572,7 @@ elif st.session_state.page == "Admin":
                                     yaxis=dict(gridcolor="#E8ECE5", title="Broadcasters"), xaxis=dict(title=None))
         with lifecycle_right:
             with st.container(border=True):
-                st.plotly_chart(lifecycle_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(lifecycle_fig, use_container_width=True, config={"displayModeBar": False})
     else:
         st.info("Upload a second month to unlock the performance trend.")
 
@@ -1667,7 +1680,7 @@ elif st.session_state.page == "Statistics":
                                   paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
                                   xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
         with st.container(border=True):
-            st.plotly_chart(revenue_fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(revenue_fig, use_container_width=True, config={"displayModeBar": False})
     with chart_right:
         status_counts = view["status"].value_counts()
         status_fig = go.Figure(go.Bar(
@@ -1680,7 +1693,7 @@ elif st.session_state.page == "Statistics":
                                  paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
                                  yaxis=dict(gridcolor="#E8ECE5", title="Broadcasters"), xaxis=dict(title=None))
         with st.container(border=True):
-            st.plotly_chart(status_fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(status_fig, use_container_width=True, config={"displayModeBar": False})
 
     distribution_left, relationship_right = st.columns(2)
     source_revenue = view.groupby("sub_agency", as_index=False)["usd_earned"].sum()
@@ -1696,7 +1709,7 @@ elif st.session_state.page == "Statistics":
                                    xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
     with distribution_left:
         with st.container(border=True):
-            st.plotly_chart(distribution_fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(distribution_fig, use_container_width=True, config={"displayModeBar": False})
     relationship_fig = go.Figure(go.Scatter(
         x=view["streaming_hours"], y=view["usd_earned"], mode="markers",
         text=view["broadcaster_name"], marker=dict(size=10, color=view["diamonds_redeemed"],
@@ -1711,7 +1724,7 @@ elif st.session_state.page == "Statistics":
                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF")
     with relationship_right:
         with st.container(border=True):
-            st.plotly_chart(relationship_fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(relationship_fig, use_container_width=True, config={"displayModeBar": False})
 
     st.markdown(f"### Broadcaster report · {len(view):,} result(s)")
     show_cols = ["broadcaster_name", "profile_url", "sub_agency", "status", "is_new",
@@ -1938,7 +1951,7 @@ elif st.session_state.page == "SubAgencies":
                                     xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
         with rc1:
             with st.container(border=True):
-                st.plotly_chart(recruiter_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(recruiter_fig, use_container_width=True, config={"displayModeBar": False})
         retention_chart = recruiter_summary.copy()
         retention_chart["retention_display"] = retention_chart["retention"].fillna(0)
         retention_fig = go.Figure(go.Bar(
@@ -1952,7 +1965,7 @@ elif st.session_state.page == "SubAgencies":
                                     yaxis=dict(range=[0, 110], ticksuffix="%", gridcolor="#E8ECE5"), xaxis=dict(title=None))
         with rc2:
             with st.container(border=True):
-                st.plotly_chart(retention_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(retention_fig, use_container_width=True, config={"displayModeBar": False})
 
     sort_choice = st.selectbox(
         "Sort by", ["Net revenue", "Diamonds", "Retention", "Growth", "Active broadcasters", "Days streamed", "Broadcaster count"], key="sa_sort"
@@ -2056,7 +2069,7 @@ elif st.session_state.page == "SubAgencies":
             rt_fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", secondary_y=False)
             rt_fig.update_yaxes(title_text="Net revenue", tickprefix="$", showgrid=False, secondary_y=True)
             with st.container(border=True):
-                st.plotly_chart(rt_fig, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(rt_fig, use_container_width=True, config={"displayModeBar": False})
 
         recruiter_at_risk = (utils.at_risk_broadcasters(
             utils.filter_by_agency(df, selected_recruiter), recruiter_prev
