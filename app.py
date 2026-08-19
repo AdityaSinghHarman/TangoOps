@@ -678,6 +678,11 @@ def load_assignments(biz_id):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+def load_direct_hires(biz_id):
+    return store.get_direct_hires(biz_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
 def load_agencies(biz_id):
     return store.get_agencies(biz_id)
 
@@ -690,6 +695,7 @@ def load_business_users(biz_id):
 def refresh_caches():
     load_all_raw.clear()
     load_assignments.clear()
+    load_direct_hires.clear()
     load_agencies.clear()
     load_all_users_df.clear()
     load_businesses_df.clear()
@@ -702,7 +708,9 @@ def period_data(period, period_type, force_agency=None):
     if raw.empty:
         return raw
     subset = raw[(raw["period"] == period) & (raw["period_type"] == period_type)].copy()
-    merged = utils.merge_assignments(subset, load_assignments(business_id))
+    merged = utils.merge_assignments(
+        subset, load_assignments(business_id), load_direct_hires(business_id)
+    )
     if force_agency:
         merged = utils.filter_by_agency(merged, force_agency)
     return merged
@@ -711,8 +719,8 @@ def period_data(period, period_type, force_agency=None):
 def agency_filter_widget(df, key):
     if not is_owner:
         return utils.filter_by_agency(df, user_agency), user_agency
-    agencies = ["All"] + load_agencies(business_id) + ["Unassigned"]
-    choice = st.selectbox("Sub-Agency", agencies, key=key)
+    agencies = ["All", "Agency Direct"] + load_agencies(business_id) + ["Needs assignment"]
+    choice = st.selectbox("Recruitment source", agencies, key=key)
     return utils.filter_by_agency(df, choice), choice
 
 
@@ -834,7 +842,7 @@ if st.session_state.page == "Businesses":
                                   showarrow=False, font=dict(size=16, color="#172016"))],
             )
             with st.container(border=True):
-                st.plotly_chart(health_fig, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(health_fig, width="stretch", config={"displayModeBar": False})
 
     recent_platform_activity = store.get_recent_platform_activity(8)
     if not recent_platform_activity.empty:
@@ -1099,7 +1107,7 @@ elif st.session_state.page == "Admin":
             with c1:
                 st.warning(
                     f"{attribution_all['unassigned']} broadcasters need assignment "
-                    f"({attribution_all['pct_assigned']}% of roster attributed)."
+                    f"({attribution_all['pct_assigned']}% of roster classified)."
                 )
             with c2:
                 st.write("")
@@ -1189,6 +1197,67 @@ elif st.session_state.page == "Admin":
         overview_kpi_card("Avg diamonds / broadcaster", f"{avg_dpb:,.1f}", "↗",
                           f"Across {n_agencies} active Sub-Agencies" if is_owner else "Current roster average")
 
+    if is_owner:
+        direct_df = df_current_all[df_current_all["sub_agency"] == "Agency Direct"]
+        partner_df = df_current_all[
+            ~df_current_all["sub_agency"].isin(["Agency Direct", "Needs assignment"])
+        ]
+        direct_kpis = utils.compute_kpis(direct_df)
+        partner_kpis = utils.compute_kpis(partner_df)
+        commission_rates = {
+            row["agency_name"]: (0.0 if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
+            for _, row in store.get_agency_details(business_id).iterrows()
+        }
+        partner_commission_due = 0.0
+        for partner_name, partner_rows in partner_df.groupby("sub_agency"):
+            _, commission_due = calculate_sub_agency_earnings(
+                partner_rows["diamonds_redeemed"].sum(), commission_rates.get(partner_name, 0.0)
+            )
+            partner_commission_due += float(commission_due or 0)
+        direct_earnings = float(direct_kpis["my_earnings_usd"])
+        partner_gross_earnings = float(partner_kpis["my_earnings_usd"])
+        partner_net_earnings = partner_gross_earnings - partner_commission_due
+        total_net_earnings = direct_earnings + partner_net_earnings
+
+        st.markdown("""
+        <div class="overview-section">
+          <h2>Recruitment and earnings mix</h2>
+          <p>See what the Agency generated through its own hires versus third-party Sub-Agencies.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        mix1, mix2, mix3, mix4 = st.columns(4)
+        mix1.metric("Agency direct hires", f"{direct_kpis['broadcasters']:,}",
+                    f"${direct_earnings:,.2f} Agency earnings")
+        mix2.metric("Sub-Agency hires", f"{partner_kpis['broadcasters']:,}",
+                    f"${partner_gross_earnings:,.2f} gross Agency earnings")
+        mix3.metric("Sub-Agency commission", f"${partner_commission_due:,.2f}",
+                    "Calculated from each saved commission rate")
+        mix4.metric("Estimated net earnings", f"${total_net_earnings:,.2f}",
+                    f"${partner_net_earnings:,.2f} retained from Sub-Agencies")
+
+        mix_chart = go.Figure(go.Bar(
+            x=["Agency Direct", "Sub-Agencies"],
+            y=[direct_earnings, partner_net_earnings],
+            marker_color=["#3F6B1E", "#86A96B"],
+            text=[f"${direct_earnings:,.2f}", f"${partner_net_earnings:,.2f}"],
+            textposition="outside",
+            hovertemplate="%{x}<br>Net Agency earnings: $%{y:,.2f}<extra></extra>",
+        ))
+        mix_chart.update_layout(
+            title="Net Agency earnings by recruitment source", height=300,
+            margin=dict(l=20, r=20, t=55, b=20), showlegend=False,
+            yaxis=dict(title=None, gridcolor="#E8ECE5", tickprefix="$"),
+            xaxis=dict(title=None), paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+            font=dict(family="Inter", color="#4C5548"),
+        )
+        with st.container(border=True):
+            st.plotly_chart(mix_chart, width="stretch", config={"displayModeBar": False})
+            st.caption(
+                "Agency Direct uses My Earnings (USD) from the uploaded Tango report. "
+                "Sub-Agency net deducts commission (redeemed diamonds ÷ 200 × saved rate) "
+                "from the Agency's My Earnings (USD)."
+            )
+
     st.markdown("""
     <div class="overview-section">
       <h2>Automated insights</h2>
@@ -1220,9 +1289,9 @@ elif st.session_state.page == "Admin":
         if is_owner:
             st.markdown(f"""
             <div class="insight-card">
-              <div class="insight-label">Roster attribution</div>
+              <div class="insight-label">Recruitment source</div>
               <div class="insight-value">{attribution_all['pct_assigned']}% complete</div>
-              <div class="insight-caption">Broadcasters assigned to a Sub-Agency</div>
+              <div class="insight-caption">Classified as Agency Direct or a Sub-Agency hire</div>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -1271,8 +1340,8 @@ elif st.session_state.page == "Admin":
         })
     if is_owner and attribution_all["unassigned"] > 0:
         follow_up_rows.append({
-            "Priority": "Medium", "Broadcaster": f"{attribution_all['unassigned']} unassigned profiles",
-            "Sub-Agency": "Unassigned", "Reason": "Roster attribution is incomplete",
+            "Priority": "Medium", "Broadcaster": f"{attribution_all['unassigned']} profiles need assignment",
+            "Sub-Agency": "Needs assignment", "Reason": "Recruitment source is incomplete",
             "Recommended action": "Review and assign broadcasters",
         })
     if not diamond_target["ahead"]:
@@ -1352,7 +1421,7 @@ elif st.session_state.page == "Admin":
                     font=dict(family="Inter", color="#4C5548"), showlegend=False,
                 )
                 with st.container(border=True):
-                    st.plotly_chart(compare_fig, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(compare_fig, width="stretch", config={"displayModeBar": False})
                     fc1, fc2 = st.columns(2)
                     fc1.metric("Forecast commission", f"${comparison['Commission due'].sum():,.2f}")
                     fc2.metric("Redeemed value", f"${comparison['Gross value'].sum():,.2f}")
@@ -1405,7 +1474,7 @@ elif st.session_state.page == "Admin":
         fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     else:
         st.info("Upload a second month to unlock the performance trend.")
 
@@ -1485,7 +1554,7 @@ elif st.session_state.page == "Broadcasters":
     search = st.text_input("Search broadcasters", key="bl_search")
     col1, col2 = st.columns(2)
     with col1:
-        agency_pick = st.selectbox("Sub-Agency", ["All"] + load_agencies(business_id) + ["Unassigned"], key="bl_agency") \
+        agency_pick = st.selectbox("Recruitment source", ["All", "Agency Direct"] + load_agencies(business_id) + ["Needs assignment"], key="bl_agency") \
             if is_owner else "All"
     with col2:
         status_pick = st.multiselect("Status", sorted(df["status"].dropna().unique().tolist()), key="bl_status")
@@ -1542,7 +1611,12 @@ elif st.session_state.page == "BroadcasterDetail":
 
     assignments = load_assignments(business_id)
     a_row = assignments[assignments["profile_url"] == profile_url] if not assignments.empty else assignments
-    sub_agency = a_row.iloc[0]["sub_agency"] if not a_row.empty else "Unassigned"
+    if not a_row.empty:
+        sub_agency = a_row.iloc[0]["sub_agency"]
+    else:
+        direct_urls = set(load_direct_hires(business_id)["profile_url"].astype(str)) \
+            if not load_direct_hires(business_id).empty else set()
+        sub_agency = "Agency Direct" if profile_url in direct_urls else "Needs assignment"
 
     if not is_owner and sub_agency != user_agency:
         st.error("You don't have access to this broadcaster.")
@@ -1602,7 +1676,7 @@ elif st.session_state.page == "SubAgencies":
         for _, row in agency_details.iterrows()
     }
     rows = []
-    for a in agencies + ["Unassigned"]:
+    for a in ["Agency Direct"] + agencies + ["Needs assignment"]:
         sub = utils.filter_by_agency(df, a)
         sub_prev = utils.filter_by_agency(df_prev, a) if not df_prev.empty else pd.DataFrame()
         k = utils.compute_kpis(sub)
@@ -1640,11 +1714,12 @@ elif st.session_state.page == "SubAgencies":
             m5.metric(
                 "Commission due",
                 "—" if pd.isna(commission_value) else f"${commission_value:,.2f}",
-                help=("Redeemed diamonds ÷ 200 × commission percentage" if r["agency"] != "Unassigned"
-                      else "Unassigned broadcasters do not have a Sub-Agency commission."),
+                help=("Redeemed diamonds ÷ 200 × commission percentage"
+                      if r["agency"] not in ("Agency Direct", "Needs assignment")
+                      else "No Sub-Agency commission applies."),
             )
 
-            if r["agency"] != "Unassigned":
+            if r["agency"] not in ("Agency Direct", "Needs assignment"):
                 rate_value = r["commission_pct"]
                 rate_text = "Not set" if pd.isna(rate_value) else f"{rate_value:g}%"
                 st.caption(
@@ -1689,8 +1764,8 @@ elif st.session_state.page == "Assign":
     ptype, period = label_map[choice]
     df = period_data(period, ptype)
 
-    only_unassigned = st.checkbox("Show only unassigned", value=True)
-    view = df[df["sub_agency"] == "Unassigned"] if only_unassigned else df
+    only_unassigned = st.checkbox("Show only broadcasters needing assignment", value=True)
+    view = df[df["sub_agency"] == "Needs assignment"] if only_unassigned else df
 
     assignment_columns = ["broadcaster_name", "profile_url", "sub_agency", "diamonds_redeemed"]
     st.dataframe(
@@ -1832,6 +1907,22 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     if period and not valid_period:
         st.error("Period format looks off. Use YYYY-MM for monthly (e.g. 2026-08) or YYYY-MM-DD for daily.")
 
+    upload_mode = "Replace complete period"
+    if is_owner and ptype == "monthly":
+        upload_mode = st.radio(
+            "How should this file be saved?",
+            ["Replace complete period", "Add Agency direct hires"],
+            horizontal=True,
+            help=("Use replacement for the normal complete Tango export. Use direct hires only "
+                  "for a smaller file that must be added without removing existing Sub-Agency data."),
+            key=f"{upload_form_key}_mode",
+        )
+        if upload_mode == "Add Agency direct hires":
+            st.info(
+                "Existing rows for this month will be preserved. Broadcasters in this file will be "
+                "classified as **Agency Direct** and will not be assigned to a Sub-Agency."
+            )
+
     uploaded = st.file_uploader(
         "Tango referral_statistics CSV", type=["csv"], key=f"{upload_form_key}_file"
     )
@@ -1847,18 +1938,36 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         history_urls = set(history["profile_url"]) if not history.empty else set()
         assignments_df = load_assignments(business_id)
         assigned_urls = set(assignments_df["profile_url"]) if not assignments_df.empty else set()
+        direct_hires_df = load_direct_hires(business_id)
+        existing_direct_urls = (set(direct_hires_df["profile_url"])
+                                if not direct_hires_df.empty else set())
+        direct_upload = upload_mode == "Add Agency direct hires"
+        assigned_in_direct_file = set(clean_df["profile_url"]) & assigned_urls
+        if direct_upload and assigned_in_direct_file:
+            st.error(
+                "This direct-hire file contains broadcaster profiles already assigned to a Sub-Agency. "
+                "Remove those rows before continuing."
+            )
+            st.stop()
 
         new_count = int((~clean_df["profile_url"].isin(history_urls)).sum())
         existing_count = len(clean_df) - new_count
         unassigned_count = int((~clean_df["profile_url"].isin(assigned_urls)).sum())
+        needs_assignment_count = int(
+            (~clean_df["profile_url"].isin(assigned_urls | existing_direct_urls)).sum()
+        )
 
         st.markdown("##### Review before saving")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Records", len(clean_df))
         c2.metric("Recognized", existing_count)
         c3.metric("New", new_count)
-        c4.metric("Need assignment", unassigned_count)
-        st.caption(f"This updates **{period}** only. Other periods stay untouched.")
+        c4.metric("Agency Direct" if direct_upload else "Need assignment",
+                  len(clean_df) if direct_upload else needs_assignment_count)
+        if direct_upload:
+            st.caption(f"This adds direct hires to **{period}**. Existing rows in that month stay untouched.")
+        else:
+            st.caption(f"This replaces **{period}** only. Other periods stay untouched.")
         preview_columns = ["broadcaster_name", "profile_url", "diamonds_redeemed", "streaming_days"]
         st.dataframe(
             clean_df[preview_columns].head(10), hide_index=True, width='stretch',
@@ -1866,15 +1975,19 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         )
 
         if st.button("Confirm upload", type="primary", key=f"{upload_form_key}_confirm"):
-            store.save_period(clean_df, period.strip(), ptype, business_id)
+            if direct_upload:
+                store.append_direct_hires(clean_df, period.strip(), ptype, business_id)
+            else:
+                store.save_period(clean_df, period.strip(), ptype, business_id)
             if not is_owner:
                 unassigned_here = [u for u in clean_df["profile_url"] if u not in assigned_urls]
                 names_map = dict(zip(clean_df["profile_url"], clean_df["broadcaster_name"]))
                 store.assign_broadcasters(unassigned_here, names_map, user_agency, business_id, assigned_by=username)
             refresh_caches()
-            note = f"Saved {len(clean_df)} broadcasters for {period} ({ptype})."
-            if is_owner and unassigned_count > 0:
-                note += f" {unassigned_count} still need assignment."
+            note = (f"Added {len(clean_df)} Agency direct hires to {period}."
+                    if direct_upload else f"Saved {len(clean_df)} broadcasters for {period} ({ptype}).")
+            if is_owner and not direct_upload and needs_assignment_count > 0:
+                note += f" {needs_assignment_count} still need assignment."
             st.session_state[upload_success_key] = note
             st.session_state[upload_form_version_key] = upload_form_version + 1
             st.rerun()

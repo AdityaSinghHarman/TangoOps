@@ -106,6 +106,14 @@ insights (retention, at-risk, growth) across months. If a sub-agency user
 does their own upload, any of their previously-unassigned broadcasters in
 that file get attributed to their agency automatically.
 
+### Adding Agency direct hires to an existing month
+When a smaller file contains only broadcasters recruited directly by the
+Agency, open **Monthly report** and choose **Add Agency direct hires** before
+uploading it. This preserves every existing row in that month, adds or updates
+only the profiles in the smaller file, and classifies them as **Agency Direct**.
+Do not assign those profiles to a Sub-Agency. The Agency overview then compares
+direct hires with Sub-Agency hires and shows the commission-adjusted earnings mix.
+
 ## Known gap — true day-by-day charting
 The approved design's comparison chart plots a full month day-by-day.
 Your monthly CSV only has period *totals*, not a row per day, so the app
