@@ -16,6 +16,15 @@ dataframeBorderColor = "#E3E3DD"
 dataframeHeaderBackgroundColor = "#F1F1EC"
 chartCategoricalColors = ["#3F6B1E", "#8FA876", "#1C1D1A", "#B8B6AC", "#6B8E4E", "#D8D6CB"]
 
+[server]
+enableXsrfProtection = true
+enableCORS = true
+maxUploadSize = 10
+maxMessageSize = 20
+
+[client]
+showErrorDetails = "none"
+
 [theme.sidebar]
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F6F6F3"

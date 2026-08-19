@@ -2,7 +2,13 @@
 Core data logic for TangoOps Agency Control.
 Kept separate from app.py so it can be unit-tested without Streamlit running.
 """
+import math
+import re
+
 import pandas as pd
+
+MAX_CSV_ROWS = 50_000
+TANGO_PROFILE_RE = re.compile(r"^https://(?:www\.)?tango\.me/[A-Za-z0-9._~%/?=&+\-]+$", re.IGNORECASE)
 
 # ---- Canonical column names coming out of the Tango "referral_statistics" export ----
 RAW_COLUMNS = [
@@ -27,6 +33,11 @@ def hms_to_hours(value: str) -> float:
 def load_tango_csv(filepath_or_buffer) -> pd.DataFrame:
     """Read a raw Tango referral_statistics CSV and normalize it into a clean DataFrame."""
     df = pd.read_csv(filepath_or_buffer)
+
+    if df.empty:
+        raise ValueError("The CSV is empty.")
+    if len(df) > MAX_CSV_ROWS:
+        raise ValueError(f"The CSV has too many rows. Maximum allowed is {MAX_CSV_ROWS:,}.")
 
     missing = [c for c in RAW_COLUMNS if c not in df.columns]
     if missing:
@@ -56,12 +67,32 @@ def load_tango_csv(filepath_or_buffer) -> pd.DataFrame:
     df["broadcaster_name"] = (df["first_name"].astype(str).str.strip() + " " +
                                df["last_name"].astype(str).str.strip()).str.strip()
 
+    if (df["broadcaster_name"].str.len() > 200).any():
+        raise ValueError("A broadcaster name is longer than 200 characters.")
+
     # numeric safety
     for col in ["diamonds_earned", "diamonds_redeemed", "my_earnings_diamonds",
                 "streaming_days", "usd_earned", "usd_redeemed", "my_earnings_usd"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
+    numeric_cols = [
+        "diamonds_earned", "diamonds_redeemed", "my_earnings_diamonds",
+        "streaming_days", "streaming_hours", "usd_earned", "usd_redeemed",
+        "my_earnings_usd",
+    ]
+    if any((df[col] < 0).any() for col in numeric_cols):
+        raise ValueError("The CSV contains negative activity or earnings values.")
+    if any(not df[col].map(math.isfinite).all() for col in numeric_cols):
+        raise ValueError("The CSV contains invalid or excessively large numeric values.")
+    if (df["streaming_days"] > 31).any():
+        raise ValueError("Streaming Days cannot exceed 31 in one report row.")
+    if (df["streaming_hours"] > 744).any():
+        raise ValueError("Streaming Hours cannot exceed 744 in one report row.")
+
     df["profile_url"] = df["profile_url"].astype(str).str.strip()
+    invalid_urls = ~df["profile_url"].map(lambda value: bool(TANGO_PROFILE_RE.fullmatch(value)))
+    if invalid_urls.any():
+        raise ValueError("Every Profile Url must be a valid https://tango.me/ link.")
     df = df.drop_duplicates(subset="profile_url", keep="last")
 
     return df[[
@@ -70,6 +101,17 @@ def load_tango_csv(filepath_or_buffer) -> pd.DataFrame:
         "streaming_days", "streaming_hours", "usd_earned", "usd_redeemed",
         "my_earnings_usd",
     ]]
+
+
+def safe_csv_bytes(df: pd.DataFrame) -> bytes:
+    """Export CSV data without allowing spreadsheet-formula injection."""
+    safe = df.copy()
+    dangerous = ("=", "+", "-", "@", "\t", "\r")
+    for column in safe.select_dtypes(include=["object", "string"]).columns:
+        safe[column] = safe[column].map(
+            lambda value: "'" + value if isinstance(value, str) and value.lstrip().startswith(dangerous) else value
+        )
+    return safe.to_csv(index=False).encode("utf-8-sig")
 
 
 def merge_assignments(stats_df: pd.DataFrame, assignments_df: pd.DataFrame) -> pd.DataFrame:

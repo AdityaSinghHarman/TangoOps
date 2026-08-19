@@ -14,6 +14,7 @@ Tables (auto-created on first run — nothing to set up by hand):
   archived_periods  periods hidden from the active dropdowns, per business
 """
 import datetime as dt
+import re
 import uuid
 import pandas as pd
 import streamlit as st
@@ -119,12 +120,48 @@ CREATE TABLE IF NOT EXISTS profiles (
     avatar_base64 TEXT,
     updated_at TIMESTAMP DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS security_audit (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT,
+    actor_username TEXT,
+    actor_role TEXT,
+    event_type TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    details TEXT,
+    created_at TIMESTAMP DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_security_audit_business_time
+    ON security_audit (business_id, created_at DESC);
+
+-- The browser-facing Supabase API must never expose these tables. TangoOps
+-- accesses Postgres only from the server, so anon/authenticated need no grants.
+DO $$
+DECLARE table_name TEXT;
+BEGIN
+    FOREACH table_name IN ARRAY ARRAY[
+        'businesses', 'users', 'agencies', 'raw_uploads', 'assignments',
+        'assignment_log', 'archived_periods', 'profiles', 'security_audit'
+    ] LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+            EXECUTE format('REVOKE ALL ON TABLE public.%I FROM anon', table_name);
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+            EXECUTE format('REVOKE ALL ON TABLE public.%I FROM authenticated', table_name);
+        END IF;
+    END LOOP;
+END $$;
 """
 
 
 @st.cache_resource(show_spinner=False)
 def _pool():
-    p = pg_pool.SimpleConnectionPool(1, 5, st.secrets["postgres"]["connection_string"])
+    p = pg_pool.SimpleConnectionPool(
+        1, 5, st.secrets["postgres"]["connection_string"],
+        sslmode="require", connect_timeout=10,
+    )
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
@@ -200,6 +237,19 @@ def update_business_name(business_id: str, new_name: str):
 def _normalize_username(username: str) -> str:
     return str(username or "").strip().lower()
 
+
+def password_policy_error(password: str):
+    """Return a user-safe policy message, or None when the password is strong."""
+    value = str(password or "")
+    if len(value) < 12:
+        return "Password must be at least 12 characters."
+    if len(value) > 128:
+        return "Password must be 128 characters or fewer."
+    checks = (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]")
+    if not all(re.search(pattern, value) for pattern in checks):
+        return "Password must include uppercase, lowercase, a number, and a special character."
+    return None
+
 def get_all_users() -> pd.DataFrame:
     return _query(
         "SELECT username, name, password_hash, role, business_id, sub_agency, status, created_at "
@@ -229,6 +279,9 @@ def create_user(username: str, name: str, password_plain: str, role: str,
                  business_id: str, sub_agency: str = "", status: str = "Active") -> tuple:
     import streamlit_authenticator as stauth
     username = _normalize_username(username)
+    policy_error = password_policy_error(password_plain)
+    if policy_error:
+        return False, policy_error
     if username_taken(username):
         return False, f"'{username}' is already registered on this platform."
     password_hash = stauth.Hasher().hash(password_plain)
@@ -246,8 +299,33 @@ def set_user_status(username: str, status: str):
 
 def reset_user_password(username: str, new_password_plain: str):
     import streamlit_authenticator as stauth
+    policy_error = password_policy_error(new_password_plain)
+    if policy_error:
+        return False, policy_error
     _execute("UPDATE users SET password_hash=%s WHERE lower(trim(username))=%s",
               (stauth.Hasher().hash(new_password_plain), _normalize_username(username)))
+    return True, "Password updated."
+
+
+def log_security_event(event_type: str, actor_username: str = "", actor_role: str = "",
+                       business_id: str = None, target_type: str = "",
+                       target_id: str = "", details: str = ""):
+    """Append a non-secret audit record for a security-sensitive action."""
+    _execute(
+        "INSERT INTO security_audit "
+        "(business_id, actor_username, actor_role, event_type, target_type, target_id, details) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (business_id, _normalize_username(actor_username), actor_role, event_type,
+         target_type, str(target_id or "")[:500], str(details or "")[:2000]),
+    )
+
+
+def get_security_audit(business_id: str, limit: int = 200) -> pd.DataFrame:
+    return _query(
+        "SELECT created_at, actor_username, actor_role, event_type, target_type, target_id, details "
+        "FROM security_audit WHERE business_id=%s ORDER BY created_at DESC LIMIT %s",
+        (business_id, max(1, min(int(limit), 1000))),
+    )
 
 
 # ---------------- agencies ----------------

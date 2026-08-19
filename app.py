@@ -332,6 +332,20 @@ def is_valid_email(value: str) -> bool:
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value.strip()))
 
 
+def generate_secure_password(length: int = 16) -> str:
+    """Generate a password that always satisfies the TangoOps policy."""
+    characters = [
+        pysecrets.choice(string.ascii_lowercase),
+        pysecrets.choice(string.ascii_uppercase),
+        pysecrets.choice(string.digits),
+        pysecrets.choice("!@#$%^&*()-_=+"),
+    ]
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+    characters.extend(pysecrets.choice(alphabet) for _ in range(max(length, 12) - len(characters)))
+    pysecrets.SystemRandom().shuffle(characters)
+    return "".join(characters)
+
+
 DIAMONDS_PER_USD = 200
 
 
@@ -391,7 +405,7 @@ authenticator = stauth.Authenticate(
     credentials,
     st.secrets["cookie"]["name"],
     st.secrets["cookie"]["key"],
-    st.secrets["cookie"]["expiry_days"],
+    min(max(int(st.secrets["cookie"].get("expiry_days", 7)), 1), 7),
     auto_hash=False,
 )
 
@@ -495,6 +509,14 @@ is_platform_admin = user_role == "platform_admin"
 is_owner = user_role == "owner"
 is_sub_agency = user_role == "sub_agency"
 business_id = user_business_id
+
+login_audit_key = f"_login_audited_{username}"
+if not st.session_state.get(login_audit_key):
+    store.log_security_event(
+        "login_success", username, user_role, business_id,
+        "account", username,
+    )
+    st.session_state[login_audit_key] = True
 
 business_name = ""
 if business_id:
@@ -882,10 +904,7 @@ if st.session_state.page == "Businesses":
                     help="The owner can use this password for their first sign-in.",
                 )
                 if st.button("Generate secure password", key="generate_biz_password"):
-                    alphabet = string.ascii_letters + string.digits
-                    st.session_state.biz_owner_password = "".join(
-                        pysecrets.choice(alphabet) for _ in range(12)
-                    )
+                    st.session_state.biz_owner_password = generate_secure_password()
                     st.rerun()
 
             st.caption("Agency data and user access are isolated from every other agency.")
@@ -899,6 +918,10 @@ if st.session_state.page == "Businesses":
                 if not owner_password.strip():
                     st.error("Enter a temporary password, or generate one.")
                     st.stop()
+                password_error = store.password_policy_error(owner_password)
+                if password_error:
+                    st.error(password_error)
+                    st.stop()
                 new_business_id = store.create_business(biz_name.strip())
                 ok, msg = store.create_user(
                     owner_email.strip(), owner_name.strip() or owner_email.strip(),
@@ -907,6 +930,10 @@ if st.session_state.page == "Businesses":
                 if not ok:
                     st.error(msg)
                     st.stop()
+                store.log_security_event(
+                    "business_created", username, user_role, new_business_id,
+                    "business", new_business_id, f"Owner account: {owner_email.strip().lower()}",
+                )
                 refresh_caches()
                 st.toast(f"Created {biz_name.strip()} with owner login {owner_email.strip()}.", icon="\u2705")
                 st.rerun()
@@ -970,12 +997,16 @@ if st.session_state.page == "Businesses":
                         if b["status"] == "Active":
                             if st.button("Disable", key=f"disbiz_{bid}", width="stretch"):
                                 store.set_business_status(bid, "Disabled")
+                                store.log_security_event("business_disabled", username, user_role, bid,
+                                                         "business", bid)
                                 refresh_caches()
                                 st.toast(f"{b['business_name']} disabled.")
                                 st.rerun()
                         else:
                             if st.button("Enable", key=f"enbiz_{bid}", type="primary", width="stretch"):
                                 store.set_business_status(bid, "Active")
+                                store.log_security_event("business_enabled", username, user_role, bid,
+                                                         "business", bid)
                                 refresh_caches()
                                 st.toast(f"{b['business_name']} enabled.", icon="\u2705")
                                 st.rerun()
@@ -1004,8 +1035,15 @@ if st.session_state.page == "Businesses":
                                     if st.button("Save password", key=f"bizpwsave_{ow['username']}",
                                                  type="primary", width="stretch"):
                                         if newpw.strip():
-                                            store.reset_user_password(ow["username"], newpw.strip())
-                                            st.success("Password updated.")
+                                            ok, message = store.reset_user_password(ow["username"], newpw.strip())
+                                            if ok:
+                                                store.log_security_event(
+                                                    "password_reset", username, user_role, bid,
+                                                    "account", ow["username"],
+                                                )
+                                                st.success(message)
+                                            else:
+                                                st.error(message)
                                         else:
                                             st.error("Enter a new password.")
 
@@ -1382,7 +1420,7 @@ elif st.session_state.page == "Admin":
                 statement["commission_usd"] = (statement["gross_value_usd"] * sub_commission_pct / 100
                                                 if sub_commission_pct is not None else None)
                 st.download_button(
-                    "Download commission statement", statement.to_csv(index=False).encode("utf-8"),
+                    "Download commission statement", utils.safe_csv_bytes(statement),
                     file_name=f"commission_statement_{user_agency}_{current_period}.csv",
                     mime="text/csv", width="stretch",
                 )
@@ -1667,7 +1705,7 @@ elif st.session_state.page == "Statistics":
     st.dataframe(view[show_cols].sort_values("usd_earned", ascending=False), width="stretch",
                  hide_index=True, column_config=table_column_config(show_cols))
     st.download_button(
-        "Download broadcaster report", view[show_cols].to_csv(index=False).encode("utf-8"),
+        "Download broadcaster report", utils.safe_csv_bytes(view[show_cols]),
         file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
     )
 
@@ -2030,7 +2068,7 @@ elif st.session_state.page == "SubAgencies":
         statement["commission_due"] = (statement["gross_redeemed_value"] * float(selected_rate) / 100
                                        if selected_rate is not None else None)
         st.download_button(
-            "Download recruiter statement", statement.to_csv(index=False).encode("utf-8"),
+            "Download recruiter statement", utils.safe_csv_bytes(statement),
             file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.csv", mime="text/csv",
         )
 
@@ -2076,6 +2114,10 @@ elif st.session_state.page == "Assign":
         target_agency = st.selectbox("Sub-Agency", agencies)
         if st.button("\u2714 Assign selected", type="primary", disabled=not selected):
             store.assign_broadcasters(selected, labels, target_agency, business_id, assigned_by=username)
+            store.log_security_event(
+                "broadcasters_assigned", username, user_role, business_id,
+                "sub_agency", target_agency, f"Count: {len(selected)}",
+            )
             refresh_caches()
             st.toast(f"Assigned {len(selected)} broadcaster(s) to {target_agency}.", icon="\u2705")
             st.rerun()
@@ -2116,9 +2158,8 @@ elif st.session_state.page == "CreateAgency":
             login_email = st.text_input("Login email", key=f"{form_key}_email")
         with c2:
             if st.button("Generate password", width="stretch", key=f"{form_key}_generate_password"):
-                alphabet = string.ascii_letters + string.digits
-                st.session_state[f"{form_key}_password"] = "".join(pysecrets.choice(alphabet) for _ in range(10))
-        password = st.text_input("Password", key=f"{form_key}_password")
+                st.session_state[f"{form_key}_password"] = generate_secure_password()
+        password = st.text_input("Password", type="password", key=f"{form_key}_password")
 
     status = st.selectbox("Status", ["Active", "Inactive"], key=f"{form_key}_status")
     notes = st.text_area("Notes", key=f"{form_key}_notes")
@@ -2137,6 +2178,10 @@ elif st.session_state.page == "CreateAgency":
             if not password.strip():
                 st.error("Enter a password (or generate one) to also create a login.")
                 st.stop()
+            password_error = store.password_policy_error(password)
+            if password_error:
+                st.error(password_error)
+                st.stop()
             if store.username_taken(login_email.strip()):
                 st.error("That login email is already registered on this platform.")
                 st.stop()
@@ -2153,6 +2198,10 @@ elif st.session_state.page == "CreateAgency":
                 st.error(m)
                 st.stop()
             msg += f" Login created for {login_email.strip()}."
+        store.log_security_event(
+            "sub_agency_created", username, user_role, business_id,
+            "sub_agency", name.strip(), f"Commission: {commission_pct:g}%",
+        )
         refresh_caches()
         st.session_state["_create_agency_success"] = msg
         st.session_state["ca_form_version"] = form_version + 1
@@ -2202,6 +2251,10 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         "Tango referral_statistics CSV", type=["csv"], key=f"{upload_form_key}_file"
     )
 
+    if uploaded is not None and uploaded.size > 10 * 1024 * 1024:
+        st.error("This CSV is larger than the 10 MB security limit.")
+        st.stop()
+
     if uploaded is not None and valid_period:
         try:
             clean_df = utils.load_tango_csv(uploaded)
@@ -2239,6 +2292,10 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
                 unassigned_here = [u for u in clean_df["profile_url"] if u not in assigned_urls]
                 names_map = dict(zip(clean_df["profile_url"], clean_df["broadcaster_name"]))
                 store.assign_broadcasters(unassigned_here, names_map, user_agency, business_id, assigned_by=username)
+            store.log_security_event(
+                "report_uploaded", username, user_role, business_id,
+                "report_period", f"{ptype}:{period.strip()}", f"Rows: {len(clean_df)}",
+            )
             refresh_caches()
             note = f"Saved {len(clean_df)} broadcasters for {period} ({ptype})."
             if is_owner and unassigned_count > 0:
@@ -2265,7 +2322,7 @@ elif st.session_state.page == "UserAccess":
         if new_role == "sub_agency":
             agencies = load_agencies(business_id)
             new_agency = st.selectbox("Sub-Agency", agencies, key="ua_agency") if agencies else None
-        new_password = st.text_input("Password", key="ua_password")
+        new_password = st.text_input("Password", type="password", key="ua_password")
 
     if st.button("Create user", type="primary"):
         if not is_valid_email(new_email):
@@ -2282,6 +2339,8 @@ elif st.session_state.page == "UserAccess":
                 new_password, new_role, business_id, new_agency or "", "Active",
             )
             if ok:
+                store.log_security_event("user_created", username, user_role, business_id,
+                                         "account", new_email.strip().lower(), f"Role: {new_role}")
                 refresh_caches()
                 st.toast(msg, icon="\u2705")
                 st.rerun()
@@ -2303,19 +2362,28 @@ elif st.session_state.page == "UserAccess":
                     if r["status"] == "Active":
                         if st.button("Disable", key=f"dis_{r['username']}"):
                             store.set_user_status(r["username"], "Disabled")
+                            store.log_security_event("user_disabled", username, user_role, business_id,
+                                                     "account", r["username"])
                             refresh_caches()
                             st.rerun()
                     else:
                         if st.button("Enable", key=f"en_{r['username']}"):
                             store.set_user_status(r["username"], "Active")
+                            store.log_security_event("user_enabled", username, user_role, business_id,
+                                                     "account", r["username"])
                             refresh_caches()
                             st.rerun()
                 with st.popover("Reset password"):
                     newpw = st.text_input("New password", key=f"pw_{r['username']}")
                     if st.button("Save", key=f"savepw_{r['username']}"):
                         if newpw.strip():
-                            store.reset_user_password(r["username"], newpw.strip())
-                            st.success("Password updated.")
+                            ok, message = store.reset_user_password(r["username"], newpw.strip())
+                            if ok:
+                                store.log_security_event("password_reset", username, user_role, business_id,
+                                                         "account", r["username"])
+                                st.success(message)
+                            else:
+                                st.error(message)
                         else:
                             st.error("Enter a new password.")
 
@@ -2345,11 +2413,15 @@ elif st.session_state.page == "DataManagement":
                     if is_archived:
                         if b2.button("Unarchive", key=f"unarch_{ptype}_{p}"):
                             store.unarchive_period(p, ptype, business_id)
+                            store.log_security_event("period_unarchived", username, user_role, business_id,
+                                                     "report_period", f"{ptype}:{p}")
                             refresh_caches()
                             st.rerun()
                     else:
                         if b2.button("Archive", key=f"arch_{ptype}_{p}"):
                             store.archive_period(p, ptype, business_id)
+                            store.log_security_event("period_archived", username, user_role, business_id,
+                                                     "report_period", f"{ptype}:{p}")
                             refresh_caches()
                             st.rerun()
                     if b3.button("Add / update", key=f"replace_{ptype}_{p}"):
@@ -2373,6 +2445,17 @@ elif st.session_state.page == "DataManagement":
         confirm = st.checkbox(f"I understand this deletes {ptype} data for the selected period", key="dm_confirm")
         if st.button("Clear this period", type="primary", disabled=not (confirm and target)):
             store.clear_period(target, ptype, business_id)
+            store.log_security_event("period_cleared", username, user_role, business_id,
+                                     "report_period", f"{ptype}:{target}")
             refresh_caches()
             st.toast(f"Cleared {ptype} data for {target}.", icon="\u2705")
             st.rerun()
+
+    st.markdown("---")
+    st.markdown("##### Security activity")
+    st.caption("Recent sign-ins and security-sensitive changes in this agency workspace.")
+    audit_df = store.get_security_audit(business_id, limit=200)
+    if audit_df.empty:
+        st.info("No security activity has been recorded yet.")
+    else:
+        st.dataframe(audit_df, hide_index=True, width="stretch")
