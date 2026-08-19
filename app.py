@@ -389,6 +389,9 @@ authenticator = stauth.Authenticate(
 # authentication so authenticated pages never inherit login-only styling.
 was_authenticated = st.session_state.get("authentication_status") is True
 if not was_authenticated:
+    # Make the next successful sign-in a fresh identity transition even when
+    # the same account signs out and back in within one browser tab.
+    st.session_state.pop("_navigation_username", None)
     st.markdown('<div class="tango-login-shell"></div>', unsafe_allow_html=True)
     hero_col, login_col = st.columns([1.35, 0.85], gap="large", vertical_alignment="center")
     with hero_col:
