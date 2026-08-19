@@ -43,9 +43,24 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS agencies (
     business_id TEXT,
     agency_name TEXT,
+    commission_pct NUMERIC(5,2),
     created_at TIMESTAMP DEFAULT now(),
     PRIMARY KEY (business_id, agency_name)
 );
+
+ALTER TABLE agencies
+    ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(5,2);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agencies_commission_pct_range'
+    ) THEN
+        ALTER TABLE agencies
+            ADD CONSTRAINT agencies_commission_pct_range
+            CHECK (commission_pct IS NULL OR commission_pct BETWEEN 1 AND 20);
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS raw_uploads (
     id SERIAL PRIMARY KEY,
@@ -238,11 +253,37 @@ def get_agencies(business_id: str) -> list:
     return df["agency_name"].tolist() if not df.empty else []
 
 
-def add_agency(name: str, business_id: str):
+def get_agency_details(business_id: str) -> pd.DataFrame:
+    return _query(
+        "SELECT agency_name, commission_pct, created_at FROM agencies "
+        "WHERE business_id=%s ORDER BY agency_name",
+        (business_id,),
+    )
+
+
+def get_agency_commission(business_id: str, agency_name: str):
+    df = _query(
+        "SELECT commission_pct FROM agencies WHERE business_id=%s AND agency_name=%s",
+        (business_id, agency_name),
+    )
+    if df.empty or pd.isna(df.iloc[0]["commission_pct"]):
+        return None
+    return float(df.iloc[0]["commission_pct"])
+
+
+def add_agency(name: str, business_id: str, commission_pct: float):
     _execute(
-        "INSERT INTO agencies (business_id, agency_name) VALUES (%s,%s) "
-        "ON CONFLICT (business_id, agency_name) DO NOTHING",
-        (business_id, name),
+        "INSERT INTO agencies (business_id, agency_name, commission_pct) VALUES (%s,%s,%s) "
+        "ON CONFLICT (business_id, agency_name) DO UPDATE "
+        "SET commission_pct=EXCLUDED.commission_pct",
+        (business_id, name, commission_pct),
+    )
+
+
+def update_agency_commission(business_id: str, agency_name: str, commission_pct: float):
+    _execute(
+        "UPDATE agencies SET commission_pct=%s WHERE business_id=%s AND agency_name=%s",
+        (commission_pct, business_id, agency_name),
     )
 
 
