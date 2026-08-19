@@ -66,24 +66,45 @@ def load_businesses_df():
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
-    creds = {"usernames": {
-        boot["username"]: {"name": boot["name"], "email": boot["username"], "password": boot_hash}
-    }}
+
+    creds = {
+        "usernames": {
+            boot["username"]: {
+                "name": boot["name"],
+                "email": boot["username"],
+                "password": boot_hash,
+            }
+        }
+    }
+
     users_df = load_all_users_df()
     businesses_df = load_businesses_df()
+
     active_business_ids = set(
         businesses_df[businesses_df["status"] == "Active"]["business_id"]
     ) if not businesses_df.empty else set()
+
     if not users_df.empty:
         active = users_df[
-            (users_df["status"] == "Active") & (users_df["business_id"].isin(active_business_ids))
+            (users_df["status"] == "Active")
+            & (users_df["business_id"].isin(active_business_ids))
         ]
+
         for _, row in active.iterrows():
             creds["usernames"][row["username"]] = {
-                "name": row["name"], "email": row["username"], "password": row["password_hash"]
+                "name": row["name"],
+                "email": row["username"],
+                "password": row["password_hash"],
             }
-    return creds, boot["username"]
 
+    # Ensure Streamlit Secrets always controls the Platform Admin login.
+    creds["usernames"][boot["username"]] = {
+        "name": boot["name"],
+        "email": boot["username"],
+        "password": boot_hash,
+    }
+
+    return creds, boot["username"]
 
 credentials, bootstrap_username = build_credentials()
 authenticator = stauth.Authenticate(
