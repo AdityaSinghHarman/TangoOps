@@ -429,8 +429,27 @@ if business_id:
     biz_row = biz_row[biz_row["business_id"] == business_id]
     business_name = biz_row.iloc[0]["business_name"] if not biz_row.empty else ""
 
-if "page" not in st.session_state:
-    st.session_state.page = "Businesses" if is_platform_admin else "Admin"
+default_page = "Businesses" if is_platform_admin else "Admin"
+allowed_pages_by_role = {
+    "platform_admin": {"Businesses", "MyProfile"},
+    "owner": {
+        "Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "Assign",
+        "SubAgencies", "CreateAgency", "UploadMonthly", "UploadDaily",
+        "UserAccess", "DataManagement", "MyProfile",
+    },
+    "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile"},
+}
+
+# Reset navigation when the authenticated identity changes. This prevents a
+# sub-agency login from inheriting an owner-only page after sign-out/sign-in.
+if st.session_state.get("_navigation_username") != username:
+    st.session_state.page = default_page
+    st.session_state.selected_profile_url = None
+    st.session_state._navigation_username = username
+elif st.session_state.get("page") not in allowed_pages_by_role[user_role]:
+    st.session_state.page = default_page
+    st.session_state.selected_profile_url = None
+
 if "selected_profile_url" not in st.session_state:
     st.session_state.selected_profile_url = None
 
@@ -508,6 +527,58 @@ with st.sidebar:
             nav_button("My profile", "MyProfile", ":material/account_circle:")
             authenticator.logout("Sign out", "sidebar")
 
+    elif is_sub_agency:
+        st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="owner-sidebar-brand">
+          <div class="owner-sidebar-logo"><span>◆</span></div>TangoOps
+        </div>
+        """, unsafe_allow_html=True)
+        sub_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "SA"
+        safe_agency_name = html.escape(str(user_agency))
+        safe_business_name = html.escape(str(business_name))
+        safe_display_name = html.escape(str(display_name))
+        st.markdown(f"""
+        <div class="owner-workspace">
+          <div class="owner-workspace-avatar">{sub_initials}</div>
+          <div class="owner-workspace-copy">
+            <div class="owner-workspace-name">{safe_agency_name}</div>
+            <div class="owner-workspace-role">Sub-agency · {safe_business_name}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        nav_button("Overview", "Admin", ":material/dashboard:")
+        nav_button("My broadcasters", "Broadcasters", ":material/groups:")
+
+        current_month_key = dt.date.today().strftime("%Y-%m")
+        monthly_uploads = store.list_periods("monthly", business_id)
+        upload_is_due = current_month_key not in monthly_uploads
+        upload_badge_class = "sidebar-due-badge" if upload_is_due else "sidebar-ok-badge"
+        upload_badge_text = "Upload due" if upload_is_due else "Up to date"
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="sidebar-group-head"><span>Reports</span>'
+                f'<span class="{upload_badge_class}">{upload_badge_text}</span></div>',
+                unsafe_allow_html=True,
+            )
+            nav_button("Upload monthly report", "UploadMonthly", ":material/upload_file:")
+
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-profile-marker"></div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="sidebar-profile">
+              <div class="owner-workspace-avatar">{sub_initials}</div>
+              <div class="sidebar-profile-copy">
+                <div class="sidebar-profile-name">{safe_display_name}</div>
+                <div class="sidebar-profile-role">{safe_agency_name} · Sub-agency</div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+            nav_button("My profile", "MyProfile", ":material/account_circle:")
+            authenticator.logout("Sign out", "sidebar")
+
     else:
         st.markdown("### \u25c8 TangoOps")
         st.caption("AGENCY CONTROL")
@@ -517,20 +588,6 @@ with st.sidebar:
 
     if is_platform_admin:
         nav_button("Agencies", "Businesses")
-        st.write("")
-        nav_button("My profile", "MyProfile")
-        if avatar_b64:
-            st.markdown(
-                f'<img src="data:image/png;base64,{avatar_b64}" '
-                f'style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-bottom:6px;">',
-                unsafe_allow_html=True,
-            )
-        st.caption(f"Signed in as **{display_name}**")
-        authenticator.logout("Sign out", "sidebar")
-    elif is_sub_agency:
-        nav_button("Dashboard", "Admin")
-        nav_button("My broadcasters", "Broadcasters")
-        nav_button("Upload report", "UploadMonthly")
         st.write("")
         nav_button("My profile", "MyProfile")
         if avatar_b64:
@@ -848,11 +905,20 @@ elif st.session_state.page == "Admin":
         st.warning("No monthly report uploaded yet. Go to **Upload report** in the sidebar.")
         st.stop()
 
-    filter_month, filter_agency = st.columns(2)
-    with filter_month:
-        current_period = st.selectbox("Reporting month", sorted(monthly_periods, reverse=True), key="admin_month")
-    df_current_all = period_data(current_period, "monthly")
-    with filter_agency:
+    if is_owner:
+        filter_month, filter_agency = st.columns(2)
+        with filter_month:
+            current_period = st.selectbox(
+                "Reporting month", sorted(monthly_periods, reverse=True), key="admin_month"
+            )
+        df_current_all = period_data(current_period, "monthly")
+        with filter_agency:
+            df_current, agency_choice = agency_filter_widget(df_current_all, "admin_agency")
+    else:
+        current_period = st.selectbox(
+            "Reporting month", sorted(monthly_periods, reverse=True), key="admin_month"
+        )
+        df_current_all = period_data(current_period, "monthly")
         df_current, agency_choice = agency_filter_widget(df_current_all, "admin_agency")
 
     previous_period = previous_period_of(current_period, "monthly")
@@ -906,7 +972,8 @@ elif st.session_state.page == "Admin":
                           diamond_note, diamond_direction)
     c4, c5, c6 = st.columns(3)
     with c4:
-        overview_kpi_card("Agency earnings", f"${kpis['my_earnings_usd']:,.2f}", "$",
+        earnings_label = "Agency earnings" if is_owner else "My roster earnings"
+        overview_kpi_card(earnings_label, f"${kpis['my_earnings_usd']:,.2f}", "$",
                           earning_note, earning_direction)
     with c5:
         overview_kpi_card("Days streamed", f"{kpis['days_worked']:,}", "◷",
@@ -963,7 +1030,8 @@ elif st.session_state.page == "Admin":
 
     if len(at_risk_df) > 0:
         with st.expander(f"{len(at_risk_df)} broadcaster(s) earned diamonds last period, streamed 0 days this period"):
-            at_risk_columns = ["broadcaster_name", "sub_agency"]
+            at_risk_columns = (["broadcaster_name", "sub_agency"] if is_owner
+                               else ["broadcaster_name"])
             st.dataframe(
                 at_risk_df[at_risk_columns].reset_index(drop=True),
                 hide_index=True, width='stretch',
