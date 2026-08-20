@@ -1,10 +1,10 @@
 [theme]
 base = "light"
-primaryColor = "#3F6B1E"
-backgroundColor = "#FAFAF8"
-secondaryBackgroundColor = "#F1F1EC"
-textColor = "#1C1D1A"
-borderColor = "#E3E3DD"
+primaryColor = "#211A4A"
+backgroundColor = "#F5F7FC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#111827"
+borderColor = "#E4E7F2"
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
 headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
 baseFontSize = 15
@@ -12,9 +12,9 @@ baseRadius = "0.75rem"
 buttonRadius = "0.625rem"
 showWidgetBorder = true
 showSidebarBorder = true
-dataframeBorderColor = "#E3E3DD"
-dataframeHeaderBackgroundColor = "#F1F1EC"
-chartCategoricalColors = ["#3F6B1E", "#8FA876", "#1C1D1A", "#B8B6AC", "#6B8E4E", "#D8D6CB"]
+dataframeBorderColor = "#E4E7F2"
+dataframeHeaderBackgroundColor = "#F5F7FC"
+chartCategoricalColors = ["#211A4A", "#7C3AED", "#8B5CF6", "#22D3EE", "#2563EB", "#059669", "#D97706"]
 
 [server]
 enableXsrfProtection = true
@@ -27,6 +27,6 @@ showErrorDetails = "none"
 
 [theme.sidebar]
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F6F6F3"
-textColor = "#1C1D1A"
-borderColor = "#E3E3DD"
+secondaryBackgroundColor = "#F5F7FC"
+textColor = "#111827"
+borderColor = "#E4E7F2"

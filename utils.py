@@ -1,5 +1,5 @@
 """
-Core data logic for TangoOps Agency Control.
+Core data logic for StreamOperiq.
 Kept separate from app.py so it can be unit-tested without Streamlit running.
 """
 import math
@@ -265,7 +265,7 @@ def broadcaster_health_score(current_df: pd.DataFrame, previous_df: pd.DataFrame
 
     The score rewards active participation, retention, positive diamond movement,
     and consistent streaming. It intentionally uses only data already uploaded to
-    TangoOps, so no paid AI service or hidden model is involved.
+    StreamOperiq, so no paid AI service or hidden model is involved.
     """
     if current_df is None or current_df.empty:
         return 0

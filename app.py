@@ -4,21 +4,61 @@ import base64
 import html
 import secrets as pysecrets
 import string
+from pathlib import Path
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit_authenticator as stauth
+from PIL import Image
 
 import utils
 import store
 
-st.set_page_config(page_title="TangoOps – Agency Control", layout="wide", page_icon="\u25c8")
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+BRAND_LOGO_PATH = ASSET_DIR / "streamoperiq-logo-primary-deep-indigo.png"
+BRAND_ICON_PATH = ASSET_DIR / "streamoperiq-app-icon.png"
+BRAND_FAVICON_PATH = ASSET_DIR / "streamoperiq-favicon.png"
+BRAND_TOKENS_CSS = (ASSET_DIR / "streamoperiq-tokens.css").read_text(encoding="utf-8")
+
+
+def image_data_uri(path: Path) -> str:
+    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+BRAND_LOGO_URI = image_data_uri(BRAND_LOGO_PATH)
+BRAND_ICON_URI = image_data_uri(BRAND_ICON_PATH)
+
+SO_BRAND = "#211A4A"
+SO_VIOLET = "#7C3AED"
+SO_PERIWINKLE = "#8B5CF6"
+SO_CYAN = "#22D3EE"
+SO_COBALT = "#2563EB"
+SO_TEXT = "#111827"
+SO_MUTED = "#475569"
+SO_SURFACE = "#FFFFFF"
+SO_BORDER = "#E4E7F2"
+SO_SUCCESS = "#059669"
+SO_WARNING = "#D97706"
+SO_DANGER = "#DC2626"
+SO_GRID = SO_BORDER
+SO_BRAND_FILL = "rgba(124,58,237,.09)"
+SO_CHART_COLORS = [SO_BRAND, SO_VIOLET, SO_PERIWINKLE, SO_CYAN, SO_COBALT, SO_SUCCESS, SO_WARNING]
+
+st.set_page_config(
+    page_title="StreamOperiq",
+    layout="wide",
+    page_icon=Image.open(BRAND_FAVICON_PATH),
+)
 
 # ---------------------------------------------------------------- styling ---
+st.markdown(f"<style>{BRAND_TOKENS_CSS}</style>", unsafe_allow_html=True)
 st.markdown("""
 <style>
-:root{ --brand:#3F6B1E; --brand-soft:#EEF3E7; --ink:#1C1D1A; --card-radius:14px; --border:#E3E3DD; }
+:root{
+  --brand:var(--so-brand); --brand-soft:#F1EDFF; --ink:var(--so-text);
+  --card-radius:var(--so-radius-card); --border:var(--so-border);
+}
 
 /* Login */
 .stApp:has(.tango-login-shell){
@@ -276,6 +316,127 @@ button:focus-visible, a:focus-visible, input:focus-visible, [role="button"]:focu
 }
 
 h1, h2, h3 { letter-spacing:-0.02em; }
+
+/* StreamOperiq brand layer — approved tokens are the source of truth. */
+.stApp{ background:var(--so-background); color:var(--so-text); font-family:var(--so-font); }
+.stApp h1,.stApp h2,.stApp h3,.stApp h4,.stApp h5,.stApp h6{ color:var(--so-brand); }
+.stApp p,.stApp label{ color:var(--so-text); }
+.stApp [data-testid="stCaptionContainer"]{ color:var(--so-text-muted); }
+.stApp section[data-testid="stSidebar"]{
+  background:var(--so-surface); border-right:1px solid var(--so-border);
+}
+.stApp div[data-testid="stVerticalBlockBorderWrapper"],
+.stApp div[data-testid="stMetric"],.stApp div[data-testid="stDataFrame"]{
+  background:var(--so-surface); border-color:var(--so-border);
+}
+.stApp .stButton>button,.stApp [data-testid="stFormSubmitButton"] button{
+  border-radius:var(--so-radius-control); font-weight:600;
+}
+.stApp [data-testid="stBaseButton-primary"],
+.stApp .stButton>button[kind="primary"],
+.stApp [data-testid="stFormSubmitButton"] button{
+  color:white !important; background:var(--so-brand) !important;
+  border-color:var(--so-brand) !important; box-shadow:none !important;
+}
+.stApp [data-testid="stBaseButton-primary"]:hover,
+.stApp .stButton>button[kind="primary"]:hover,
+.stApp [data-testid="stFormSubmitButton"] button:hover{
+  color:white !important; background:var(--so-violet) !important;
+  border-color:var(--so-violet) !important;
+}
+.stApp div[data-baseweb="input"],.stApp div[data-baseweb="select"]>div,
+.stApp textarea{ background:var(--so-surface); border-color:var(--so-border); }
+.stApp div[data-baseweb="input"]:focus-within,
+.stApp div[data-baseweb="select"]>div:focus-within,.stApp textarea:focus{
+  border-color:var(--so-violet) !important; box-shadow:0 0 0 3px rgba(124,58,237,.14) !important;
+}
+button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-visible{
+  outline-color:var(--so-periwinkle) !important;
+}
+
+.stApp:has(.tango-login-shell){
+  background:radial-gradient(circle at 12% 12%,rgba(124,58,237,.10),transparent 30rem),
+    linear-gradient(135deg,var(--so-background) 0%,var(--so-surface) 55%,#F0F5FF 100%);
+}
+.tango-login-brand{ color:var(--so-brand); margin-bottom:4.8rem; }
+.tango-login-brand img{ display:block; width:min(390px,85%); height:auto; object-fit:contain; }
+.tango-login-eyebrow{ color:var(--so-violet); }
+.tango-login-hero h1,.tango-login-panel-head h2{ color:var(--so-brand); }
+.tango-login-hero p,.tango-login-panel-head p,.tango-login-foot{ color:var(--so-text-muted); }
+.tango-login-proof{ color:var(--so-text); }
+.tango-login-proof span::before{ color:var(--so-violet); background:#F1EDFF; }
+.stApp:has(.tango-login-shell) div[data-testid="stColumn"]:has(.tango-login-panel-head){
+  background:rgba(255,255,255,.96); border-color:var(--so-border);
+  box-shadow:0 24px 70px rgba(33,26,74,.10),0 3px 12px rgba(17,24,39,.04);
+}
+.stApp:has(.tango-login-shell) div[data-testid="stTextInput"] label{ color:var(--so-text); }
+.stApp:has(.tango-login-shell) div[data-baseweb="input"]{
+  background:var(--so-surface); border-color:var(--so-border); border-radius:var(--so-radius-control);
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"] button{
+  color:var(--so-text-muted) !important; border-left-color:var(--so-border) !important;
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"] button:hover{
+  color:var(--so-violet) !important; background:#F5F2FF !important;
+}
+
+.stApp:has(.platform-admin-page),.stApp:has(.owner-overview-page){ background:var(--so-background); }
+.stApp:has(.platform-admin-page) section[data-testid="stSidebar"],
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"]{
+  background:var(--so-surface); border-color:var(--so-border);
+}
+.admin-kicker,.overview-eyebrow{ color:var(--so-violet); }
+.admin-hero h1,.overview-hero h1,.admin-section-head h2,.overview-section h2,
+.command-grid-title h2{ color:var(--so-brand); }
+.admin-hero p,.overview-hero p,.admin-section-head p,.overview-section p,
+.command-grid-title p{ color:var(--so-text-muted); }
+.admin-secure-pill{ color:var(--so-brand); background:#F1EDFF; border-color:#DDD4FE; }
+.agency-status.active,.sidebar-ok-badge{ color:var(--so-success); background:#ECFDF5; border-color:#A7F3D0; }
+.agency-status.disabled,.sidebar-due-badge{ color:var(--so-warning); background:#FFF7ED; border-color:#FED7AA; }
+.empty-agencies{ color:var(--so-text-muted); }
+.empty-agencies-icon,.overview-kpi-icon{ color:var(--so-violet); background:#F1EDFF; }
+.overview-period-pill,.overview-kpi,.insight-card,.command-score,.command-alert,
+.owner-workspace{ background:var(--so-surface); border-color:var(--so-border); }
+.overview-kpi-label,.overview-kpi-note,.insight-label,.insight-caption,
+.command-score-copy p,.command-alert-copy,.command-footnote{ color:var(--so-text-muted); }
+.overview-kpi-value,.insight-value,.command-score-value,.command-score-copy h3,
+.command-alert-value,.owner-workspace-name,.sidebar-profile-name{ color:var(--so-brand); }
+.overview-kpi-note.up{ color:var(--so-success); }.overview-kpi-note.down{ color:var(--so-danger); }
+.command-alert-label{ color:var(--so-warning); }
+.command-score-ring{ background:conic-gradient(var(--so-violet) calc(var(--score)*1%),#ECEEFA 0); }
+.command-progress{ background:#ECEEFA; }
+.command-progress span{ background:var(--so-ai-gradient); }
+.command-table-badge{ color:var(--so-cobalt); background:#EFF6FF; }
+
+.owner-sidebar-brand{ color:var(--so-brand); }
+.owner-sidebar-brand img{ width:2.15rem; height:2.15rem; border-radius:.65rem; object-fit:cover; }
+.owner-workspace-avatar{ color:var(--so-brand); background:#F1EDFF; }
+.owner-workspace-role,.sidebar-profile-role,.sidebar-group-head{ color:var(--so-text-muted); }
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button{ color:var(--so-text); }
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button:hover{
+  color:var(--so-brand); background:#F5F2FF; border-color:#DDD4FE;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button[kind="primary"],
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
+  color:var(--so-brand) !important; background:#F1EDFF !important; border-color:#DDD4FE !important;
+  box-shadow:inset 3px 0 0 var(--so-violet) !important;
+}
+.stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] details summary{ color:var(--so-brand); }
+.kpi-card{ background:var(--so-surface); border-color:var(--so-border); }
+.kpi-card:hover{ box-shadow:0 6px 20px rgba(33,26,74,.07); }
+.kpi-card.dark{ background:var(--so-brand); }
+section[data-testid="stSidebar"] .stButton>button:hover{ background:#F5F2FF; border-color:var(--so-border); }
+section[data-testid="stSidebar"] .stButton>button[kind="primary"],
+section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
+  background:#F1EDFF !important; color:var(--so-brand) !important;
+  border-color:#DDD4FE !important;
+}
+
+@media (max-width:800px){
+  .tango-login-brand img{ width:min(300px,88%); }
+  .tango-login-brand{ margin-bottom:2rem; }
+  .owner-sidebar-brand img{ width:1.9rem; height:1.9rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -333,7 +494,7 @@ def is_valid_email(value: str) -> bool:
 
 
 def generate_secure_password(length: int = 16) -> str:
-    """Generate a password that always satisfies the TangoOps policy."""
+    """Generate a password that always satisfies the StreamOperiq policy."""
     characters = [
         pysecrets.choice(string.ascii_lowercase),
         pysecrets.choice(string.ascii_uppercase),
@@ -420,17 +581,17 @@ if not was_authenticated:
     st.markdown('<div class="tango-login-shell"></div>', unsafe_allow_html=True)
     hero_col, login_col = st.columns([1.35, 0.85], gap="large", vertical_alignment="center")
     with hero_col:
-        st.markdown("""
+        st.markdown(f"""
         <div class="tango-login-hero">
           <div class="tango-login-brand">
-            <div class="tango-login-mark"><span>◆</span></div>TangoOps
+            <img src="{BRAND_LOGO_URI}" alt="StreamOperiq">
           </div>
-          <div class="tango-login-eyebrow">Agency operations, simplified</div>
-          <h1>Turn performance data into confident action.</h1>
-          <p>One secure workspace to monitor broadcaster performance, manage
-          agency relationships, and keep every report on track.</p>
+          <div class="tango-login-eyebrow">Streaming Operations + Intelligence</div>
+          <h1>Intelligence behind every creator operation.</h1>
+          <p>A multi-platform operations and performance intelligence platform
+          for creator agencies and live-streaming networks.</p>
           <div class="tango-login-proof">
-            <span>Role-based access</span><span>Secure reporting</span><span>Live insights</span>
+            <span>Multi-platform operations</span><span>Secure reporting</span><span>Performance intelligence</span>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -438,7 +599,7 @@ if not was_authenticated:
         st.markdown("""
         <div class="tango-login-panel-head">
           <h2>Welcome back</h2>
-          <p>Sign in to continue to your TangoOps workspace.</p>
+          <p>Sign in to continue to your StreamOperiq workspace.</p>
         </div>
         """, unsafe_allow_html=True)
         authenticator.login(location="main", fields={
@@ -447,7 +608,7 @@ if not was_authenticated:
             "Password": "Password",
             "Login": "Sign in",
         })
-        st.markdown('<div class="tango-login-foot">Protected access · TangoOps Agency Control</div>',
+        st.markdown('<div class="tango-login-foot">Protected access · StreamOperiq</div>',
                     unsafe_allow_html=True)
 
 auth_status = st.session_state.get("authentication_status")
@@ -501,7 +662,7 @@ def current_user_context():
 
 user_role, user_business_id, user_agency = current_user_context()
 if user_role is None:
-    st.error("This login session is no longer valid or does not have an active TangoOps role.")
+    st.error("This login session is no longer valid or does not have an active StreamOperiq role.")
     st.warning("For security, no platform or agency data has been loaded. Sign out, then sign in with an active account.")
     authenticator.logout("Sign out and return to login", "main")
     st.stop()
@@ -560,14 +721,18 @@ def nav_button(label, page_key, icon=None):
         st.rerun()
 
 
+def render_sidebar_brand():
+    st.markdown(f"""
+    <div class="owner-sidebar-brand">
+      <img src="{BRAND_ICON_URI}" alt="" aria-hidden="true"><span>StreamOperiq</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 with st.sidebar:
     if is_owner:
         st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="owner-sidebar-brand">
-          <div class="owner-sidebar-logo"><span>◆</span></div>TangoOps
-        </div>
-        """, unsafe_allow_html=True)
+        render_sidebar_brand()
         owner_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "AO"
         safe_business_name = html.escape(str(business_name))
         safe_display_name = html.escape(str(display_name))
@@ -631,11 +796,7 @@ with st.sidebar:
 
     elif is_sub_agency:
         st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="owner-sidebar-brand">
-          <div class="owner-sidebar-logo"><span>◆</span></div>TangoOps
-        </div>
-        """, unsafe_allow_html=True)
+        render_sidebar_brand()
         sub_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "SA"
         safe_agency_name = html.escape(str(user_agency))
         safe_business_name = html.escape(str(business_name))
@@ -682,7 +843,7 @@ with st.sidebar:
             authenticator.logout("Sign out", "sidebar")
 
     else:
-        st.markdown("### \u25c8 TangoOps")
+        render_sidebar_brand()
         st.caption("PLATFORM CONTROL")
         if business_name:
             st.caption(business_name)
@@ -887,15 +1048,15 @@ if st.session_state.page == "Businesses":
             status_counts = agency_health["Status"].value_counts()
             health_fig = go.Figure(go.Pie(
                 labels=status_counts.index, values=status_counts.values, hole=.7,
-                marker=dict(colors=["#5C9D3A", "#E39A32", "#C7544B"]),
+                marker=dict(colors=[SO_SUCCESS, SO_WARNING, SO_DANGER]),
                 textinfo="label+value", hovertemplate="%{label}: %{value}<extra></extra>",
             ))
             health_fig.update_layout(
                 title="Account health distribution", height=310,
                 margin=dict(l=10, r=10, t=55, b=10), showlegend=False,
-                paper_bgcolor="#FFFFFF", font=dict(family="Inter", color="#4C5548"),
+                paper_bgcolor=SO_SURFACE, font=dict(family="Inter", color=SO_MUTED),
                 annotations=[dict(text=f"{len(agency_health)}<br>agencies", x=.5, y=.5,
-                                  showarrow=False, font=dict(size=16, color="#172016"))],
+                                  showarrow=False, font=dict(size=16, color=SO_TEXT))],
             )
             with st.container(border=True):
                 st.plotly_chart(health_fig, use_container_width=True, config={"displayModeBar": False})
@@ -1091,8 +1252,8 @@ elif st.session_state.page == "MyProfile":
         else:
             initials = "".join([p[0].upper() for p in display_name.split()[:2]]) or "?"
             st.markdown(
-                f'<div style="width:96px;height:96px;border-radius:50%;background:#EEF3E7;'
-                f'color:#3F6B1E;display:flex;align-items:center;justify-content:center;'
+                f'<div style="width:96px;height:96px;border-radius:50%;background:#F1EDFF;'
+                f'color:{SO_BRAND};display:flex;align-items:center;justify-content:center;'
                 f'font-size:32px;font-weight:700;">{initials}</div>',
                 unsafe_allow_html=True,
             )
@@ -1305,7 +1466,7 @@ elif st.session_state.page == "Admin":
         mix_chart = go.Figure(go.Bar(
             x=["Agency Direct", "Sub-Agencies"],
             y=[direct_earnings, partner_net_earnings],
-            marker_color=["#3F6B1E", "#86A96B"],
+            marker_color=[SO_BRAND, SO_VIOLET],
             text=[f"${direct_earnings:,.2f}", f"${partner_net_earnings:,.2f}"],
             textposition="outside",
             hovertemplate="%{x}<br>Net Agency earnings: $%{y:,.2f}<extra></extra>",
@@ -1313,9 +1474,9 @@ elif st.session_state.page == "Admin":
         mix_chart.update_layout(
             title="Net Agency earnings by recruitment source", height=300,
             margin=dict(l=20, r=20, t=55, b=20), showlegend=False,
-            yaxis=dict(title=None, gridcolor="#E8ECE5", tickprefix="$"),
-            xaxis=dict(title=None), paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-            font=dict(family="Inter", color="#4C5548"),
+            yaxis=dict(title=None, gridcolor=SO_GRID, tickprefix="$"),
+            xaxis=dict(title=None), paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+            font=dict(family="Inter", color=SO_MUTED),
         )
         with st.container(border=True):
             st.plotly_chart(mix_chart, use_container_width=True, config={"displayModeBar": False})
@@ -1472,14 +1633,14 @@ elif st.session_state.page == "Admin":
                 comparison = comparison.sort_values("Diamonds", ascending=True)
                 compare_fig = go.Figure(go.Bar(
                     x=comparison["Diamonds"], y=comparison["Sub-Agency"], orientation="h",
-                    marker=dict(color="#3F6B1E"), text=comparison["Diamonds"], texttemplate="%{text:,.0f}",
+                    marker=dict(color=SO_BRAND), text=comparison["Diamonds"], texttemplate="%{text:,.0f}",
                     textposition="outside", hovertemplate="%{y}<br>%{x:,.0f} diamonds<extra></extra>",
                 ))
                 compare_fig.update_layout(
                     title="Sub-Agency performance", height=285, margin=dict(l=10, r=45, t=50, b=20),
-                    xaxis=dict(showgrid=True, gridcolor="#E8ECE5", title=None),
-                    yaxis=dict(title=None), paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                    font=dict(family="Inter", color="#4C5548"), showlegend=False,
+                    xaxis=dict(showgrid=True, gridcolor=SO_GRID, title=None),
+                    yaxis=dict(title=None), paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                    font=dict(family="Inter", color=SO_MUTED), showlegend=False,
                 )
                 with st.container(border=True):
                     st.plotly_chart(compare_fig, use_container_width=True, config={"displayModeBar": False})
@@ -1517,24 +1678,24 @@ elif st.session_state.page == "Admin":
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         fig.add_trace(go.Scatter(
             name="Diamonds redeemed", x=trend_periods, y=trend_diamonds,
-            mode="lines+markers", line=dict(color="#3F6B1E", width=3),
-            marker=dict(size=8, color="#3F6B1E"), fill="tozeroy",
-            fillcolor="rgba(63,107,30,.09)", hovertemplate="%{x}<br>%{y:,.0f} diamonds<extra></extra>",
+            mode="lines+markers", line=dict(color=SO_BRAND, width=3),
+            marker=dict(size=8, color=SO_BRAND), fill="tozeroy",
+            fillcolor=SO_BRAND_FILL, hovertemplate="%{x}<br>%{y:,.0f} diamonds<extra></extra>",
         ), secondary_y=False)
         fig.add_trace(go.Scatter(
             name="Active broadcasters", x=trend_periods, y=trend_active,
-            mode="lines+markers", line=dict(color="#E2812C", width=2.5),
-            marker=dict(size=7, color="#E2812C"),
+            mode="lines+markers", line=dict(color=SO_CYAN, width=2.5),
+            marker=dict(size=7, color=SO_CYAN),
             hovertemplate="%{x}<br>%{y:,.0f} active<extra></extra>",
         ), secondary_y=True)
         fig.update_layout(
             height=390, margin=dict(l=20, r=20, t=50, b=20),
-            paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF", hovermode="x unified",
+            paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE, hovermode="x unified",
             legend=dict(orientation="h", yanchor="bottom", y=1.04, x=0),
-            font=dict(family="Inter", color="#4C5548"),
+            font=dict(family="Inter", color=SO_MUTED),
         )
         fig.update_xaxes(showgrid=False, title=None)
-        fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", zeroline=False, secondary_y=False)
+        fig.update_yaxes(title_text="Diamonds", gridcolor=SO_GRID, zeroline=False, secondary_y=False)
         fig.update_yaxes(title_text="Active broadcasters", showgrid=False, zeroline=False, secondary_y=True)
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
@@ -1542,18 +1703,18 @@ elif st.session_state.page == "Admin":
         financial_fig = go.Figure()
         financial_fig.add_trace(go.Scatter(
             name="Agency revenue", x=trend_periods, y=trend_agency_revenue,
-            mode="lines+markers", line=dict(color="#3F6B1E", width=3),
+            mode="lines+markers", line=dict(color=SO_BRAND, width=3),
             hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
         ))
         financial_fig.add_trace(go.Scatter(
             name="Creator revenue", x=trend_periods, y=trend_creator_revenue,
-            mode="lines+markers", line=dict(color="#E2812C", width=2.5),
+            mode="lines+markers", line=dict(color=SO_CYAN, width=2.5),
             hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
         ))
         financial_fig.update_layout(
             title="Monthly revenue trend", height=330, margin=dict(l=20, r=20, t=50, b=20),
-            paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF", hovermode="x unified",
-            yaxis=dict(tickprefix="$", gridcolor="#E8ECE5"),
+            paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE, hovermode="x unified",
+            yaxis=dict(tickprefix="$", gridcolor=SO_GRID),
             legend=dict(orientation="h", y=1.05),
         )
         with financial_left:
@@ -1563,13 +1724,13 @@ elif st.session_state.page == "Admin":
         lifecycle_counts = lifecycle_df["status"].value_counts()
         lifecycle_fig = go.Figure(go.Bar(
             x=lifecycle_counts.index, y=lifecycle_counts.values,
-            marker_color="#86A96B", text=lifecycle_counts.values, textposition="outside",
+            marker_color=SO_PERIWINKLE, text=lifecycle_counts.values, textposition="outside",
             hovertemplate="%{x}: %{y}<extra></extra>",
         ))
         lifecycle_fig.update_layout(title="Broadcaster lifecycle", height=330,
                                     margin=dict(l=20, r=20, t=50, b=35), showlegend=False,
-                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                                    yaxis=dict(gridcolor="#E8ECE5", title="Broadcasters"), xaxis=dict(title=None))
+                                    paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                                    yaxis=dict(gridcolor=SO_GRID, title="Broadcasters"), xaxis=dict(title=None))
         with lifecycle_right:
             with st.container(border=True):
                 st.plotly_chart(lifecycle_fig, use_container_width=True, config={"displayModeBar": False})
@@ -1672,26 +1833,26 @@ elif st.session_state.page == "Statistics":
         top_revenue = view.nlargest(10, "usd_earned").sort_values("usd_earned")
         revenue_fig = go.Figure(go.Bar(
             x=top_revenue["usd_earned"], y=top_revenue["broadcaster_name"], orientation="h",
-            marker_color="#3F6B1E", text=top_revenue["usd_earned"], texttemplate="$%{text:,.0f}",
+            marker_color=SO_BRAND, text=top_revenue["usd_earned"], texttemplate="$%{text:,.0f}",
             textposition="outside", hovertemplate="%{y}<br>$%{x:,.2f}<extra></extra>",
         ))
         revenue_fig.update_layout(title="Top broadcasters by creator revenue", height=350,
                                   margin=dict(l=10, r=55, t=50, b=20), showlegend=False,
-                                  paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                                  xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
+                                  paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                                  xaxis=dict(gridcolor=SO_GRID, tickprefix="$"), yaxis=dict(title=None))
         with st.container(border=True):
             st.plotly_chart(revenue_fig, use_container_width=True, config={"displayModeBar": False})
     with chart_right:
         status_counts = view["status"].value_counts()
         status_fig = go.Figure(go.Bar(
-            x=status_counts.index, y=status_counts.values, marker_color="#86A96B",
+            x=status_counts.index, y=status_counts.values, marker_color=SO_PERIWINKLE,
             text=status_counts.values, textposition="outside",
             hovertemplate="%{x}: %{y}<extra></extra>",
         ))
         status_fig.update_layout(title="Broadcaster activity distribution", height=350,
                                  margin=dict(l=20, r=20, t=50, b=35), showlegend=False,
-                                 paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                                 yaxis=dict(gridcolor="#E8ECE5", title="Broadcasters"), xaxis=dict(title=None))
+                                 paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                                 yaxis=dict(gridcolor=SO_GRID, title="Broadcasters"), xaxis=dict(title=None))
         with st.container(border=True):
             st.plotly_chart(status_fig, use_container_width=True, config={"displayModeBar": False})
 
@@ -1700,13 +1861,13 @@ elif st.session_state.page == "Statistics":
     source_revenue = source_revenue.sort_values("usd_earned")
     distribution_fig = go.Figure(go.Bar(
         x=source_revenue["usd_earned"], y=source_revenue["sub_agency"], orientation="h",
-        marker_color="#5D7C4D", text=source_revenue["usd_earned"], texttemplate="$%{text:,.0f}",
+        marker_color=SO_COBALT, text=source_revenue["usd_earned"], texttemplate="$%{text:,.0f}",
         textposition="outside", hovertemplate="%{y}<br>$%{x:,.2f}<extra></extra>",
     ))
     distribution_fig.update_layout(title="Creator revenue distribution by source", height=340,
                                    margin=dict(l=10, r=55, t=50, b=20), showlegend=False,
-                                   paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                                   xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
+                                   paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                                   xaxis=dict(gridcolor=SO_GRID, tickprefix="$"), yaxis=dict(title=None))
     with distribution_left:
         with st.container(border=True):
             st.plotly_chart(distribution_fig, use_container_width=True, config={"displayModeBar": False})
@@ -1719,9 +1880,9 @@ elif st.session_state.page == "Statistics":
     ))
     relationship_fig.update_layout(title="Streaming hours and creator revenue", height=340,
                                    margin=dict(l=20, r=20, t=50, b=35),
-                                   xaxis=dict(title="Streaming hours", gridcolor="#E8ECE5"),
-                                   yaxis=dict(title="Creator revenue", tickprefix="$", gridcolor="#E8ECE5"),
-                                   paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF")
+                                   xaxis=dict(title="Streaming hours", gridcolor=SO_GRID),
+                                   yaxis=dict(title="Creator revenue", tickprefix="$", gridcolor=SO_GRID),
+                                   paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE)
     with relationship_right:
         with st.container(border=True):
             st.plotly_chart(relationship_fig, use_container_width=True, config={"displayModeBar": False})
@@ -1942,13 +2103,13 @@ elif st.session_state.page == "SubAgencies":
         revenue_compare = recruiter_summary.sort_values("net_revenue")
         recruiter_fig = go.Figure(go.Bar(
             x=revenue_compare["net_revenue"], y=revenue_compare["agency"], orientation="h",
-            marker_color="#3F6B1E", text=revenue_compare["net_revenue"], texttemplate="$%{text:,.0f}",
+            marker_color=SO_BRAND, text=revenue_compare["net_revenue"], texttemplate="$%{text:,.0f}",
             textposition="outside", hovertemplate="%{y}<br>Net Agency revenue: $%{x:,.2f}<extra></extra>",
         ))
         recruiter_fig.update_layout(title="Net Agency revenue by recruiter", height=330,
                                     margin=dict(l=10, r=55, t=50, b=20), showlegend=False,
-                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                                    xaxis=dict(gridcolor="#E8ECE5", tickprefix="$"), yaxis=dict(title=None))
+                                    paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                                    xaxis=dict(gridcolor=SO_GRID, tickprefix="$"), yaxis=dict(title=None))
         with rc1:
             with st.container(border=True):
                 st.plotly_chart(recruiter_fig, use_container_width=True, config={"displayModeBar": False})
@@ -1956,13 +2117,13 @@ elif st.session_state.page == "SubAgencies":
         retention_chart["retention_display"] = retention_chart["retention"].fillna(0)
         retention_fig = go.Figure(go.Bar(
             x=retention_chart["agency"], y=retention_chart["retention_display"],
-            marker_color="#86A96B", text=retention_chart["retention_display"], texttemplate="%{text:.1f}%",
+            marker_color=SO_PERIWINKLE, text=retention_chart["retention_display"], texttemplate="%{text:.1f}%",
             textposition="outside", hovertemplate="%{x}<br>Retention: %{y:.1f}%<extra></extra>",
         ))
         retention_fig.update_layout(title="Recruiter retention comparison", height=330,
                                     margin=dict(l=20, r=20, t=50, b=20), showlegend=False,
-                                    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-                                    yaxis=dict(range=[0, 110], ticksuffix="%", gridcolor="#E8ECE5"), xaxis=dict(title=None))
+                                    paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
+                                    yaxis=dict(range=[0, 110], ticksuffix="%", gridcolor=SO_GRID), xaxis=dict(title=None))
         with rc2:
             with st.container(border=True):
                 st.plotly_chart(retention_fig, use_container_width=True, config={"displayModeBar": False})
@@ -2054,19 +2215,19 @@ elif st.session_state.page == "SubAgencies":
             rt_fig = make_subplots(specs=[[{"secondary_y": True}]])
             rt_fig.add_trace(go.Scatter(
                 name="Diamonds", x=recruiter_trend["Month"], y=recruiter_trend["Diamonds"],
-                mode="lines+markers", line=dict(color="#3F6B1E", width=3),
+                mode="lines+markers", line=dict(color=SO_BRAND, width=3),
                 hovertemplate="%{x}<br>%{y:,.0f} diamonds<extra></extra>",
             ), secondary_y=False)
             rt_fig.add_trace(go.Scatter(
                 name="Net Agency revenue", x=recruiter_trend["Month"],
                 y=recruiter_trend["Net Agency revenue"], mode="lines+markers",
-                line=dict(color="#E2812C", width=2.5),
+                line=dict(color=SO_CYAN, width=2.5),
                 hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
             ), secondary_y=True)
             rt_fig.update_layout(height=330, margin=dict(l=20, r=20, t=45, b=20),
-                                 hovermode="x unified", paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                                 hovermode="x unified", paper_bgcolor=SO_SURFACE, plot_bgcolor=SO_SURFACE,
                                  legend=dict(orientation="h", y=1.05))
-            rt_fig.update_yaxes(title_text="Diamonds", gridcolor="#E8ECE5", secondary_y=False)
+            rt_fig.update_yaxes(title_text="Diamonds", gridcolor=SO_GRID, secondary_y=False)
             rt_fig.update_yaxes(title_text="Net revenue", tickprefix="$", showgrid=False, secondary_y=True)
             with st.container(border=True):
                 st.plotly_chart(rt_fig, use_container_width=True, config={"displayModeBar": False})

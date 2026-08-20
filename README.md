@@ -1,6 +1,7 @@
-# TangoOps – Agency Control
+# StreamOperiq
 
-A multi-business referral-agency platform. One deployment can host several
+StreamOperiq is a multi-platform operations and performance intelligence platform
+for creator agencies and live-streaming networks. One deployment can host several
 completely separate businesses (ABC, DEF, ...), each with its own
 broadcasters, sub-agencies, and logins — fully walled off from every other
 business on the same platform.

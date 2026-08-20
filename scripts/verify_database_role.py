@@ -1,4 +1,4 @@
-"""Verify that a TangoOps database connection is operational and restricted.
+"""Verify that a StreamOperiq database connection is operational and restricted.
 
 By default, this reads the non-secret host/project shape from the existing
 local Streamlit configuration and asks only for the new role password using a
@@ -134,7 +134,7 @@ def main():
 
     if unsafe:
         raise SystemExit(f"FAILED: role {role[0]} still has administrator or RLS-bypass privileges.")
-    print(f"PASS: role {role[0]} has required TangoOps access and no administrator privileges.")
+    print(f"PASS: role {role[0]} has required StreamOperiq access and no administrator privileges.")
     if args.update_local_secrets:
         _update_local_secrets(database_url)
         print("Local Streamlit Secrets now uses the verified restricted role.")

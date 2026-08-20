@@ -1,4 +1,4 @@
-"""Exercise TangoOps runtime database writes and roll the transaction back.
+"""Exercise StreamOperiq runtime database writes and roll the transaction back.
 
 This proves the configured role can perform the application's required DML
 without leaving test records or modifying customer data.

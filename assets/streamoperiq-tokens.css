@@ -1,0 +1,19 @@
+:root {
+  --so-brand: #211a4a;
+  --so-violet: #7c3aed;
+  --so-periwinkle: #8b5cf6;
+  --so-cyan: #22d3ee;
+  --so-cobalt: #2563eb;
+  --so-text: #111827;
+  --so-text-muted: #475569;
+  --so-background: #f5f7fc;
+  --so-surface: #ffffff;
+  --so-border: #e4e7f2;
+  --so-success: #059669;
+  --so-warning: #d97706;
+  --so-danger: #dc2626;
+  --so-radius-control: 9px;
+  --so-radius-card: 12px;
+  --so-font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --so-ai-gradient: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 46%, #22d3ee 100%);
+}

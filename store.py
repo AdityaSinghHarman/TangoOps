@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS security_audit (
 CREATE INDEX IF NOT EXISTS idx_security_audit_business_time
     ON security_audit (business_id, created_at DESC);
 
--- The browser-facing Supabase API must never expose these tables. TangoOps
+-- The browser-facing Supabase API must never expose these tables. StreamOperiq
 -- accesses Postgres only from the server, so anon/authenticated need no grants.
 DO $$
 DECLARE table_name TEXT;
@@ -169,7 +169,7 @@ RUNTIME_SEQUENCE_PRIVILEGES = ("USAGE", "SELECT")
 
 
 def _verify_runtime_permissions(conn):
-    """Fail safely when the configured role lacks TangoOps runtime access."""
+    """Fail safely when the configured role lacks StreamOperiq runtime access."""
     missing = []
     with conn.cursor() as cur:
         for table in RUNTIME_TABLES:
@@ -200,7 +200,7 @@ def _verify_runtime_permissions(conn):
                     missing.append(f"{privilege} permission on {qualified}")
     if missing:
         raise RuntimeError(
-            "The configured database role is missing required TangoOps runtime access: "
+            "The configured database role is missing required StreamOperiq runtime access: "
             + "; ".join(missing)
         )
 

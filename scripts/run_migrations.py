@@ -1,7 +1,7 @@
-"""Run TangoOps schema upgrades with a temporary administrator connection.
+"""Run StreamOperiq schema upgrades with a temporary administrator connection.
 
 Normal Streamlit startup never executes DDL. Run this script only when a
-TangoOps release explicitly contains a database migration.
+StreamOperiq release explicitly contains a database migration.
 """
 from getpass import getpass
 from pathlib import Path
@@ -40,7 +40,7 @@ def main():
         raise
     finally:
         conn.close()
-    print("TangoOps database migration completed successfully.")
+    print("StreamOperiq database migration completed successfully.")
 
 
 if __name__ == "__main__":
