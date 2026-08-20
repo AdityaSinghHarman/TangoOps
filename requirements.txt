@@ -1,5 +1,5 @@
 streamlit==1.50.0
 streamlit-authenticator==0.4.2
-pandas==2.2.3
+pandas==2.3.3
 plotly==6.3.0
 psycopg2-binary==2.9.12
