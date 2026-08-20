@@ -381,6 +381,26 @@ button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-v
 .stApp:has(.tango-login-shell) div[data-baseweb="input"] button:hover{
   color:var(--so-violet) !important; background:#F5F2FF !important;
 }
+.stApp:has(.tango-login-shell) [data-testid="InputInstructions"]{
+  display:none !important;
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"]{
+  overflow:hidden;
+}
+.stApp:has(.tango-login-shell) div[data-baseweb="input"] button{
+  align-self:stretch !important; flex:0 0 3rem !important;
+  width:3rem !important; min-width:3rem !important; min-height:100% !important;
+  display:inline-flex !important; align-items:center !important; justify-content:center !important;
+}
+.stApp:has(.tango-login-shell) [data-testid="stFormSubmitButton"] button:disabled{
+  color:#7E7898 !important; background:#E9E7F3 !important;
+  border-color:#D9D5E8 !important; opacity:1 !important;
+  box-shadow:none !important; cursor:not-allowed !important;
+}
+.stApp:has(.tango-login-shell) [data-testid="stFormSubmitButton"] button:not(:disabled){
+  color:#FFFFFF !important; background:var(--so-brand) !important;
+  border-color:var(--so-brand) !important;
+}
 
 .stApp:has(.platform-admin-page),.stApp:has(.owner-overview-page){ background:var(--so-background); }
 .stApp:has(.platform-admin-page) section[data-testid="stSidebar"],
