@@ -1,6 +1,12 @@
 -- TangoOps restricted runtime role setup.
 -- Run once in the Supabase SQL Editor as the database administrator.
 -- Replace the password placeholder before running. Never commit the real value.
+--
+-- Re-run this whole script (safe/idempotent — GRANT and CREATE POLICY here are
+-- both re-runnable) any time RUNTIME_TABLES in store.py gains a new table, so
+-- tangoops_app is never missing a grant on a table the app actually queries.
+-- 21 Aug 2026: added 'memberships' (was missed when that table was first
+-- added) and 'subscriptions'.
 
 CREATE ROLE tangoops_app
 WITH
@@ -23,8 +29,8 @@ DECLARE
     table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'businesses', 'users', 'agencies', 'raw_uploads', 'assignments',
-        'assignment_log', 'archived_periods', 'profiles', 'security_audit',
+        'businesses', 'users', 'memberships', 'subscriptions', 'agencies', 'raw_uploads',
+        'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
         EXECUTE format(

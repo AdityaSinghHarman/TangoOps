@@ -11,6 +11,9 @@ Tables (created through the administrator-only migration command):
                      the authoritative source for role/business resolution at
                      login, added so identity is no longer hardwired to a
                      single business_id/role pair on the users row itself
+  subscriptions     one row per business: its current plan/billing state.
+                     Schema only for now (no app wiring) — added early to
+                     carry a one-time annual purchase (auto_renew=false)
   agencies          sub-agency names, per business
   raw_uploads       every uploaded period's broadcaster stats, per business
   assignments       permanent profile_url -> sub_agency mapping, per business
@@ -66,6 +69,32 @@ CREATE TABLE IF NOT EXISTS memberships (
 );
 CREATE INDEX IF NOT EXISTS idx_memberships_username
     ON memberships (username, status);
+
+-- One row per business: its current subscription state. Added early (ahead of
+-- the full Phase 4/6 plans/entitlements/billing build) specifically to carry
+-- a one-time annual purchase: auto_renew defaults false because there is no
+-- payment gateway to auto-charge yet (Section 11) — a customer pays once for
+-- a 12-month period, and current_period_end is what the future lifecycle
+-- automation (Phase 7) checks to start the renewal-reminder cascade. No
+-- plan_id FK yet: the `plans` catalog table doesn't exist until Phase 4, so
+-- plan_code stays a plain string until then. Schema only for now — no store.py
+-- or app.py wiring reads or writes this table yet.
+CREATE TABLE IF NOT EXISTS subscriptions (
+    business_id TEXT PRIMARY KEY REFERENCES businesses(business_id),
+    plan_code TEXT NOT NULL DEFAULT 'essential',
+    billing_cycle TEXT NOT NULL DEFAULT 'annual',
+    status TEXT NOT NULL DEFAULT 'trialing',
+    auto_renew BOOLEAN NOT NULL DEFAULT false,
+    current_period_start DATE,
+    current_period_end DATE,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT subscriptions_billing_cycle_valid
+        CHECK (billing_cycle IN ('monthly', 'annual')),
+    CONSTRAINT subscriptions_status_valid
+        CHECK (status IN ('trialing', 'active', 'grace', 'restricted', 'cancelled', 'expired'))
+);
 
 CREATE TABLE IF NOT EXISTS agencies (
     business_id TEXT,
@@ -205,8 +234,8 @@ DO $$
 DECLARE table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'businesses', 'users', 'memberships', 'agencies', 'raw_uploads', 'assignments',
-        'assignment_log', 'archived_periods', 'profiles', 'security_audit',
+        'businesses', 'users', 'memberships', 'subscriptions', 'agencies', 'raw_uploads',
+        'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
@@ -221,8 +250,8 @@ END $$;
 """
 
 RUNTIME_TABLES = (
-    "businesses", "users", "memberships", "agencies", "raw_uploads", "assignments",
-    "assignment_log", "archived_periods", "profiles", "security_audit",
+    "businesses", "users", "memberships", "subscriptions", "agencies", "raw_uploads",
+    "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )
 

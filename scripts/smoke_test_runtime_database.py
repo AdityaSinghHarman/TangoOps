@@ -48,6 +48,11 @@ def main():
                 (business_id, username),
             )
             cur.execute(
+                "INSERT INTO subscriptions (business_id, plan_code, billing_cycle, status, auto_renew) "
+                "VALUES (%s,'growth','annual','trialing',false)",
+                (business_id,),
+            )
+            cur.execute(
                 "INSERT INTO agencies (business_id, agency_name, commission_pct) VALUES (%s,%s,5)",
                 (business_id, marker),
             )

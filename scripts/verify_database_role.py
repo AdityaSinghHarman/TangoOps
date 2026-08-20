@@ -17,8 +17,8 @@ from urllib.parse import quote, urlparse, urlunparse
 import psycopg2
 
 TABLES = (
-    "businesses", "users", "memberships", "agencies", "raw_uploads", "assignments",
-    "assignment_log", "archived_periods", "profiles", "security_audit",
+    "businesses", "users", "memberships", "subscriptions", "agencies", "raw_uploads",
+    "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )
 SEQUENCES = ("raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq")
