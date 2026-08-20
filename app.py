@@ -608,8 +608,18 @@ def build_credentials():
             normalized_username = str(row["username"]).strip().lower()
             if normalized_username == boot_username:
                 continue
+            # A copied or newly provisioned Dev account may intentionally have
+            # no password until the Platform Admin assigns one. Never pass a
+            # null or malformed value to bcrypt: the authentication library
+            # otherwise raises an exception instead of rejecting the login.
+            password_hash = row.get("password_hash")
+            if not isinstance(password_hash, str) or not re.fullmatch(
+                r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}", password_hash.strip()
+            ):
+                continue
             creds["usernames"][normalized_username] = {
-                "name": row["name"], "email": normalized_username, "password": row["password_hash"]
+                "name": row["name"], "email": normalized_username,
+                "password": password_hash.strip(),
             }
     return creds, boot_username
 
