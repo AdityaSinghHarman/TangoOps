@@ -419,6 +419,27 @@ button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-v
   border-color:var(--so-brand) !important;
 }
 
+/* Password controls: consistent visibility toggle and no overlapping
+   Enter-to-submit helper text in login, popovers, or administration forms. */
+.stApp div[data-testid="stTextInput"]:has(input[type="password"]) [data-testid="InputInstructions"]{
+  display:none !important;
+}
+.stApp div[data-baseweb="input"]:has(input[type="password"]){
+  overflow:hidden;
+}
+.stApp div[data-baseweb="input"]:has(input[type="password"]) button{
+  align-self:stretch !important; flex:0 0 3rem !important;
+  width:3rem !important; min-width:3rem !important; min-height:100% !important;
+  margin:0 !important; padding:0 !important;
+  display:inline-flex !important; align-items:center !important; justify-content:center !important;
+  color:var(--so-text-muted) !important; background:var(--so-surface) !important;
+  border:0 !important; border-left:1px solid var(--so-border) !important;
+  border-radius:0 !important; box-shadow:none !important;
+}
+.stApp div[data-baseweb="input"]:has(input[type="password"]) button:hover{
+  color:var(--so-violet) !important; background:#F5F2FF !important;
+}
+
 .stApp:has(.platform-admin-page),.stApp:has(.owner-overview-page){ background:var(--so-background); }
 .stApp:has(.platform-admin-page) section[data-testid="stSidebar"],
 .stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"]{
@@ -480,17 +501,59 @@ section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
 }
 
 /* Shared dashboard alignment and density */
-.stApp [data-testid="stMainBlockContainer"]{ max-width:1240px; padding-top:2.2rem; padding-bottom:3rem; }
+.stApp [data-testid="stMainBlockContainer"]{ max-width:1320px; padding:2rem 1.5rem 3rem; }
+.stApp [data-testid="stMainBlockContainer"] > div{ width:100%; }
+.stApp [data-testid="stMainBlockContainer"] h1{
+  margin:0 0 .45rem; font-size:clamp(2rem,3vw,2.45rem); line-height:1.12;
+}
+.stApp [data-testid="stMainBlockContainer"] h2{ margin:0 0 .4rem; line-height:1.25; }
+.stApp [data-testid="stMainBlockContainer"] h3,
+.stApp [data-testid="stMainBlockContainer"] h4,
+.stApp [data-testid="stMainBlockContainer"] h5,
+.stApp [data-testid="stMainBlockContainer"] h6{ margin-top:.25rem; margin-bottom:.35rem; line-height:1.3; }
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stCaptionContainer"]{ line-height:1.45; }
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"]{ gap:.8rem; }
 .overview-hero{ margin-bottom:1.15rem; align-items:flex-start; }
 .overview-section,.command-grid-title{ margin-top:1.35rem; margin-bottom:.7rem; }
 .stApp [data-testid="stHorizontalBlock"]{ align-items:stretch; gap:.85rem; }
 @media (min-width:901px){
   .stApp [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]{ min-width:0; }
+  .stApp [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlock"]{ height:100%; }
 }
-.stApp div[data-testid="stMetric"]{ height:100%; min-height:112px; padding:1rem 1.05rem; border-radius:var(--so-radius-card); }
-.stApp div[data-testid="stVerticalBlockBorderWrapper"]{ border-color:var(--so-border); border-radius:var(--so-radius-card); }
+.stApp div[data-testid="stMetric"]{
+  height:100%; min-height:112px; padding:1rem 1.05rem;
+  border:1px solid var(--so-border); border-radius:var(--so-radius-card);
+}
+.stApp div[data-testid="stMetric"] [data-testid="stMetricLabel"]{ min-height:1.5rem; line-height:1.3; }
+.stApp div[data-testid="stMetric"] [data-testid="stMetricValue"]{ line-height:1.1; }
+.stApp div[data-testid="stVerticalBlockBorderWrapper"]{
+  height:100%; border-color:var(--so-border); border-radius:var(--so-radius-card);
+}
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stWidgetLabel"]{
+  min-height:1.5rem; display:flex; align-items:flex-end; margin-bottom:.25rem;
+}
+.stApp [data-testid="stMainBlockContainer"] div[data-baseweb="input"],
+.stApp [data-testid="stMainBlockContainer"] div[data-baseweb="select"] > div,
+.stApp [data-testid="stMainBlockContainer"] textarea{
+  min-height:2.75rem;
+}
+.stApp [data-testid="stMainBlockContainer"] .stButton > button,
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stFormSubmitButton"] button,
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stDownloadButton"] button,
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stPopover"] button{
+  min-height:2.75rem;
+  display:inline-flex; align-items:center; justify-content:center; line-height:1.2;
+}
+.stApp [data-testid="stMainBlockContainer"] div[data-testid="stForm"] [data-testid="stHorizontalBlock"]{
+  align-items:flex-end;
+}
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stAlert"]{ margin:.25rem 0; border-radius:var(--so-radius-control); }
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stExpander"]{ border-color:var(--so-border); border-radius:var(--so-radius-control); }
 .stApp [data-testid="stDataFrame"],.stApp [data-testid="stPlotlyChart"]{ width:100%; }
 .stApp [data-testid="stPlotlyChart"] > div{ width:100% !important; }
+.stApp [data-testid="stDataFrame"]{ overflow:hidden; border:1px solid var(--so-border); border-radius:var(--so-radius-control); }
+.stApp [data-testid="stPlotlyChart"]{ overflow:hidden; border-radius:var(--so-radius-control); }
+.stApp [data-testid="stMainBlockContainer"] hr{ margin:1rem 0; border-color:var(--so-border); }
 .dashboard-section-nav{ margin:.2rem 0 .7rem; }
 .stApp div[data-testid="stSegmentedControl"]{ margin:.2rem 0 .9rem; }
 .stApp div[data-testid="stSegmentedControl"] [role="radiogroup"]{
@@ -503,6 +566,7 @@ section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
 }
 @media (max-width:900px){
   .stApp [data-testid="stMainBlockContainer"]{ padding:1.25rem 1rem 2.5rem; }
+  .stApp [data-testid="stMainBlockContainer"] h1{ font-size:1.9rem; }
   .overview-hero{ gap:.8rem; }
   .overview-period-pill{ display:none; }
   .stApp [data-testid="stHorizontalBlock"]{ flex-wrap:wrap; }
@@ -869,7 +933,7 @@ with st.sidebar:
             st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
             st.markdown('<div class="sidebar-group-head"><span>Manage</span></div>', unsafe_allow_html=True)
             nav_button("Broadcasters", "Broadcasters", ":material/groups:")
-            nav_button("Assign broadcasters", "Assign", ":material/person_add:")
+            nav_button("Assign Broadcasters", "Assign", ":material/person_add:")
             nav_button("Create Sub-Agency", "CreateAgency", ":material/domain_add:")
 
         current_month_key = dt.date.today().strftime("%Y-%m")
@@ -884,16 +948,16 @@ with st.sidebar:
                 f'<span class="{upload_badge_class}">{upload_badge_text}</span></div>',
                 unsafe_allow_html=True,
             )
-            nav_button("Monthly report", "UploadMonthly", ":material/upload_file:")
-            nav_button("Daily report", "UploadDaily", ":material/description:")
+            nav_button("Monthly Report", "UploadMonthly", ":material/upload_file:")
+            nav_button("Daily Report", "UploadDaily", ":material/description:")
 
         admin_expanded = st.session_state.page in ("UserAccess", "DataManagement")
         with st.expander("Administration", expanded=admin_expanded, icon=":material/admin_panel_settings:"):
-            nav_button("User access", "UserAccess", ":material/manage_accounts:")
-            nav_button("Data management", "DataManagement", ":material/database:")
+            nav_button("User Access", "UserAccess", ":material/manage_accounts:")
+            nav_button("Data Management", "DataManagement", ":material/database:")
 
-        nav_button("My profile", "MyProfile", ":material/account_circle:")
-        authenticator.logout("Sign out", "sidebar")
+        nav_button("My Profile", "MyProfile", ":material/account_circle:")
+        authenticator.logout("Sign Out", "sidebar")
 
     elif is_sub_agency:
         st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
@@ -914,7 +978,7 @@ with st.sidebar:
         """, unsafe_allow_html=True)
 
         nav_button("Overview", "Admin", ":material/dashboard:")
-        nav_button("My broadcasters", "Broadcasters", ":material/groups:")
+        nav_button("My Broadcasters", "Broadcasters", ":material/groups:")
 
         current_month_key = dt.date.today().strftime("%Y-%m")
         monthly_uploads = store.list_periods("monthly", business_id)
@@ -928,10 +992,10 @@ with st.sidebar:
                 f'<span class="{upload_badge_class}">{upload_badge_text}</span></div>',
                 unsafe_allow_html=True,
             )
-            nav_button("Upload monthly report", "UploadMonthly", ":material/upload_file:")
+            nav_button("Upload Monthly Report", "UploadMonthly", ":material/upload_file:")
 
-        nav_button("My profile", "MyProfile", ":material/account_circle:")
-        authenticator.logout("Sign out", "sidebar")
+        nav_button("My Profile", "MyProfile", ":material/account_circle:")
+        authenticator.logout("Sign Out", "sidebar")
 
     else:
         render_sidebar_brand()
@@ -953,10 +1017,10 @@ with st.sidebar:
           </div>
         </div>
         """, unsafe_allow_html=True)
-        nav_button("Platform overview", "Businesses", ":material/admin_panel_settings:")
+        nav_button("Platform Overview", "Businesses", ":material/admin_panel_settings:")
         st.write("")
-        nav_button("My profile", "MyProfile", ":material/account_circle:")
-        authenticator.logout("Sign out", "sidebar")
+        nav_button("My Profile", "MyProfile", ":material/account_circle:")
+        authenticator.logout("Sign Out", "sidebar")
 
 # --------------------------------------------------------- shared loaders --
 @st.cache_data(ttl=60, show_spinner=False)
@@ -1020,6 +1084,9 @@ if st.session_state.page == "Businesses":
     if not is_platform_admin:
         st.error("Platform admin access only.")
         st.stop()
+    password_reset_notice = st.session_state.pop("_password_reset_notice", None)
+    if password_reset_notice:
+        st.toast(password_reset_notice, icon="\u2705")
     st.markdown('<div class="platform-admin-page"></div>', unsafe_allow_html=True)
     database_posture = store.get_database_role_posture()
     database_is_restricted = not any(
@@ -1035,7 +1102,7 @@ if st.session_state.page == "Businesses":
     <div class="admin-hero">
       <div>
         <div class="admin-kicker">Platform administration</div>
-        <h1>Platform overview</h1>
+        <h1>Platform Overview</h1>
         <p>Monitor platform health and manage isolated agency accounts, owners, and access.</p>
       </div>
     </div>
@@ -1097,7 +1164,7 @@ if st.session_state.page == "Businesses":
     avg_health = round(float(agency_health["Health"].mean()), 1) if not agency_health.empty else 0.0
 
     st.markdown("""
-    <div class="command-grid-title"><div><h2>Platform health overview</h2>
+    <div class="command-grid-title"><div><h2>Platform Health Overview</h2>
     <p>Live reporting adoption, network performance and account health.</p></div></div>
     """, unsafe_allow_html=True)
     p1, p2, p3, p4 = st.columns(4)
@@ -1110,7 +1177,7 @@ if st.session_state.page == "Businesses":
         left_health, right_health = st.columns([1.45, 1])
         with left_health:
             with st.container(border=True):
-                st.markdown("##### Agency health directory")
+                st.markdown("##### Agency Health Directory")
                 st.dataframe(
                     agency_health.sort_values(["Health", "Diamonds"], ascending=[True, False]),
                     hide_index=True, width="stretch",
@@ -1152,7 +1219,7 @@ if st.session_state.page == "Businesses":
     with create_tab:
         st.markdown("""
         <div class="admin-section-head">
-          <h2>Set up a new agency</h2>
+          <h2>Set Up a New Agency</h2>
           <p>Create the agency workspace and its first owner account together.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -1168,12 +1235,12 @@ if st.session_state.page == "Businesses":
                     "Temporary password", key="biz_owner_password", type="password",
                     help="The owner can use this password for their first sign-in.",
                 )
-                if st.button("Generate secure password", key="generate_biz_password"):
+                if st.button("Generate Secure Password", key="generate_biz_password"):
                     st.session_state.biz_owner_password = generate_secure_password()
                     st.rerun()
 
             st.caption("Agency data and user access are isolated from every other agency.")
-            if st.button("Create agency", type="primary", disabled=not biz_name.strip(), width="stretch"):
+            if st.button("Create Agency", type="primary", disabled=not biz_name.strip(), width="stretch"):
                 if not is_valid_email(owner_email):
                     st.error("Enter a valid owner email address.")
                     st.stop()
@@ -1206,7 +1273,7 @@ if st.session_state.page == "Businesses":
     with directory_tab:
         st.markdown("""
         <div class="admin-section-head">
-          <h2>Agency directory</h2>
+          <h2>Agency Directory</h2>
           <p>Find an agency, review its access, or update its owner credentials.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -1248,8 +1315,10 @@ if st.session_state.page == "Businesses":
                     f'letter-spacing:-.02em;margin-bottom:.3rem">{safe_directory_name}</div>',
                     unsafe_allow_html=True,
                 )
-                c1.markdown(f"`{bid}` &nbsp; · &nbsp; {owner_count} owner account(s) "
-                            f"&nbsp; · &nbsp; {agency_count} Sub-Agencies")
+                owner_label = "owner account" if owner_count == 1 else "owner accounts"
+                sub_agency_label = "Sub-Agency" if agency_count == 1 else "Sub-Agencies"
+                c1.markdown(f"`{bid}` &nbsp; · &nbsp; {owner_count} {owner_label} "
+                            f"&nbsp; · &nbsp; {agency_count} {sub_agency_label}")
                 status_class = "active" if b["status"] == "Active" else "disabled"
                 c1.markdown(f'<span class="agency-status {status_class}">{b["status"]}</span>',
                             unsafe_allow_html=True)
@@ -1278,15 +1347,15 @@ if st.session_state.page == "Businesses":
 
                 if st.session_state.get("editing_biz") == bid:
                     st.divider()
-                    st.markdown("###### Agency details")
+                    st.markdown("###### Agency Details")
                     new_name = st.text_input("Agency name", value=b["business_name"], key=f"rename_{bid}")
-                    if st.button("Save agency name", key=f"savename_{bid}", type="primary"):
+                    if st.button("Save Agency Name", key=f"savename_{bid}", type="primary"):
                         store.update_business_name(bid, new_name.strip() or b["business_name"])
                         refresh_caches()
                         st.toast("Agency name updated.", icon="\u2705")
                         st.rerun()
 
-                    st.markdown("###### Owner access")
+                    st.markdown("###### Owner Access")
                     if owners_only.empty:
                         st.info("No owner account exists for this agency yet.")
                     else:
@@ -1294,10 +1363,10 @@ if st.session_state.page == "Businesses":
                             oc1, oc2 = st.columns([2, 1], vertical_alignment="center")
                             oc1.markdown(f"**{ow['name']}**  \n`{ow['username']}`")
                             with oc2:
-                                with st.popover("Reset password", use_container_width=True):
+                                with st.popover("Reset Password", use_container_width=True):
                                     newpw = st.text_input("New password", type="password",
                                                           key=f"bizpw_{ow['username']}")
-                                    if st.button("Save password", key=f"bizpwsave_{ow['username']}",
+                                    if st.button("Save Password", key=f"bizpwsave_{ow['username']}",
                                                  type="primary", width="stretch"):
                                         if newpw.strip():
                                             ok, message = store.reset_user_password(ow["username"], newpw.strip())
@@ -1306,7 +1375,9 @@ if st.session_state.page == "Businesses":
                                                     "password_reset", username, user_role, bid,
                                                     "account", ow["username"],
                                                 )
-                                                st.success(message)
+                                                refresh_caches()
+                                                st.session_state["_password_reset_notice"] = message
+                                                st.rerun()
                                             else:
                                                 st.error(message)
                                         else:
@@ -1314,7 +1385,7 @@ if st.session_state.page == "Businesses":
 
 # ================================================================ MY PROFILE
 elif st.session_state.page == "MyProfile":
-    st.title("My profile")
+    st.title("My Profile")
     st.caption("Visible only to you \u2014 change your display name or profile picture any time.")
 
     col1, col2 = st.columns([1, 3])
@@ -1337,7 +1408,7 @@ elif st.session_state.page == "MyProfile":
         st.markdown(f"**{display_name}**")
         st.caption(f"{username} \u00b7 {user_role.replace('_', ' ')}")
 
-    st.markdown("##### Display name")
+    st.markdown("##### Display Name")
     new_display_name = st.text_input("Name", value=display_name, key="profile_name")
     if st.button("Save name", type="primary", disabled=not new_display_name.strip()):
         store.upsert_profile(username, display_name=new_display_name.strip())
@@ -1345,7 +1416,7 @@ elif st.session_state.page == "MyProfile":
         st.toast("Name updated.", icon="\u2705")
         st.rerun()
 
-    st.markdown("##### Profile picture")
+    st.markdown("##### Profile Picture")
     pic = st.file_uploader("Upload a picture (PNG or JPG, under 1.5 MB)", type=["png", "jpg", "jpeg"], key="profile_pic")
     if pic is not None:
         if pic.size > 1_500_000:
@@ -1494,7 +1565,7 @@ elif st.session_state.page == "Admin":
         overview_kpi_card("Days streamed", f"{kpis['days_worked']:,}", "◷",
                           days_note, days_direction)
     with c6:
-        overview_kpi_card("Avg diamonds / broadcaster", f"{avg_dpb:,.1f}", "↗",
+        overview_kpi_card("Average diamonds per broadcaster", f"{avg_dpb:,.1f}", "↗",
                           f"Across {n_agencies} active Sub-Agencies" if is_owner else "Current roster average")
 
     if is_owner:
@@ -1531,7 +1602,7 @@ elif st.session_state.page == "Admin":
 
         st.markdown("""
         <div class="overview-section">
-          <h2>Recruitment and earnings mix</h2>
+          <h2>Recruitment and Earnings Mix</h2>
           <p>See what the Agency generated through its own hires versus third-party Sub-Agencies.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -1568,7 +1639,7 @@ elif st.session_state.page == "Admin":
                 "from the Agency's My Earnings (USD)."
             )
     elif is_sub_agency:
-        st.markdown("### Commission summary")
+        st.markdown("### Commission Summary")
         fc1, fc2, fc3 = st.columns(3)
         fc1.metric("Redeemed value", f"${sub_gross_usd:,.2f}")
         fc2.metric("Commission rate", "Not set" if sub_commission_pct is None else f"{sub_commission_pct:g}%")
@@ -1579,7 +1650,7 @@ elif st.session_state.page == "Admin":
     my_insights_panel.__enter__()
     st.markdown("""
     <div class="overview-section">
-      <h2>Automated insights</h2>
+      <h2>Automated Insights</h2>
       <p>Signals that may need attention this reporting period.</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1630,8 +1701,9 @@ elif st.session_state.page == "Admin":
         </div>
         """, unsafe_allow_html=True)
 
+    at_risk_label = "broadcaster" if len(at_risk_df) == 1 else "broadcasters"
     if len(at_risk_df) > 0:
-        with st.expander(f"{len(at_risk_df)} broadcaster(s) earned diamonds last period, streamed 0 days this period"):
+        with st.expander(f"{len(at_risk_df)} {at_risk_label} earned diamonds last period and streamed 0 days this period"):
             at_risk_columns = (["broadcaster_name", "sub_agency"] if is_owner
                                else ["broadcaster_name"])
             st.dataframe(
@@ -1647,7 +1719,7 @@ elif st.session_state.page == "Admin":
     st.info(
         f"**Monthly management summary:** {movement_text}. Health is **{health_label.lower()}** at "
         f"**{health_score}/100**, retention is **{f'{retention:.1f}%' if retention is not None else 'not yet available'}**, "
-        f"and **{len(at_risk_df)}** broadcaster(s) currently need retention follow-up."
+        f"and **{len(at_risk_df)}** {at_risk_label} currently need retention follow-up."
     )
     follow_up_rows = []
     for _, risk_row in at_risk_df.head(8).iterrows():
@@ -1673,14 +1745,14 @@ elif st.session_state.page == "Admin":
     my_performance_panel = dashboard_panel("my_dashboard", "Performance")
     my_performance_panel.__enter__()
     st.markdown("""
-    <div class="command-grid-title"><div><h2>Target and financial outlook</h2>
+    <div class="command-grid-title"><div><h2>Target and Financial Outlook</h2>
     <p>Current progress against an 8% improvement target based on the previous reporting period.</p></div></div>
     """, unsafe_allow_html=True)
     outlook_left, outlook_right = st.columns([1, 1.45])
     progress_width = min(100, max(0, diamond_target["progress_pct"]))
     with outlook_left:
         with st.container(border=True):
-            st.markdown("##### Monthly performance target")
+            st.markdown("##### Monthly Performance Target")
             st.metric("Diamonds redeemed", f"{kpis['diamonds_redeemed']:,.0f}",
                       f"Target {diamond_target['target']:,.0f}")
             st.markdown(
@@ -1693,7 +1765,7 @@ elif st.session_state.page == "Admin":
             st.caption(f"{diamond_target['progress_pct']:.1f}% achieved · {target_message}")
             if is_sub_agency:
                 st.divider()
-                st.markdown("##### Commission summary")
+                st.markdown("##### Commission Summary")
                 pc1, pc2 = st.columns(2)
                 pc1.metric("Gross redeemed value", f"${sub_gross_usd:,.2f}")
                 pc2.metric("Commission earned", "Not set" if sub_commission_usd is None else f"${sub_commission_usd:,.2f}")
@@ -1745,7 +1817,7 @@ elif st.session_state.page == "Admin":
             roster_view = utils.add_growth_status(df_current, df_previous)
             roster_columns = ["broadcaster_name", "status", "diamonds_redeemed", "streaming_days", "growth_pct"]
             with st.container(border=True):
-                st.markdown("##### Assigned broadcaster performance")
+                st.markdown("##### Assigned Broadcaster Performance")
                 st.dataframe(
                     roster_view[roster_columns].sort_values("diamonds_redeemed", ascending=False).head(8),
                     hide_index=True, width="stretch", column_config=table_column_config(roster_columns),
@@ -1753,7 +1825,7 @@ elif st.session_state.page == "Admin":
 
     st.markdown("""
     <div class="overview-section">
-      <h2>Performance trend</h2>
+      <h2>Performance Trend</h2>
       <p>Diamonds redeemed and active broadcaster movement over time.</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1833,7 +1905,7 @@ elif st.session_state.page == "Admin":
 
     st.markdown("""
     <div class="overview-section">
-      <h2>Top performers</h2>
+      <h2>Top Performers</h2>
       <p>Broadcasters leading the selected period by diamonds redeemed.</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1858,7 +1930,7 @@ elif st.session_state.page == "Statistics":
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="overview-hero"><div><div class="overview-eyebrow">Agency analytics</div>
-    <h1>Broadcaster Dashboard</h1><p>Search, segment and compare every broadcaster in the Agency roster.</p>
+    <h1>Broadcaster Dashboard</h1><p>Search, segment, and compare every broadcaster in the agency roster.</p>
     </div><div class="overview-period-pill">Broadcaster intelligence</div></div>
     """, unsafe_allow_html=True)
     dashboard_section_control("broadcaster_dashboard", ["Overview", "Performance", "Retention", "Directory"])
@@ -1894,13 +1966,13 @@ elif st.session_state.page == "Statistics":
     k5, k6, k7, k8 = st.columns(4)
     k5.metric("Reactivated", f"{reactivated:,}")
     k6.metric("At risk", f"{len(at_risk_all):,}")
-    k7.metric("Avg streaming hours", f"{avg_hours:,.1f}")
-    k8.metric("Avg creator revenue", f"${avg_creator_revenue:,.2f}")
+    k7.metric("Average streaming hours", f"{avg_hours:,.1f}")
+    k8.metric("Average creator revenue", f"${avg_creator_revenue:,.2f}")
     broadcaster_overview_panel.__exit__(None, None, None)
 
     broadcaster_retention_panel = dashboard_panel("broadcaster_dashboard", "Retention")
     broadcaster_retention_panel.__enter__()
-    st.markdown("### Retention and broadcaster health")
+    st.markdown("### Retention and Broadcaster Health")
     retention_value = utils.retention_rate(df_all, df_prev_all) if not df_prev_all.empty else None
     health_value = utils.broadcaster_health_score(df_all, df_prev_all)
     rh1, rh2, rh3 = st.columns(3)
@@ -2008,7 +2080,8 @@ elif st.session_state.page == "Statistics":
 
     broadcaster_directory_panel = dashboard_panel("broadcaster_dashboard", "Directory")
     broadcaster_directory_panel.__enter__()
-    st.markdown(f"### Broadcaster report · {len(view):,} result(s)")
+    result_label = "result" if len(view) == 1 else "results"
+    st.markdown(f"### Broadcaster Report · {len(view):,} {result_label}")
     show_cols = ["broadcaster_name", "profile_url", "sub_agency", "status", "is_new",
                  "streaming_days", "streaming_hours", "diamonds_earned", "diamonds_redeemed",
                  "usd_earned", "my_earnings_usd", "diamonds_per_day", "growth_pct"]
@@ -2022,7 +2095,7 @@ elif st.session_state.page == "Statistics":
 
 # =============================================================== BROADCASTERS
 elif st.session_state.page == "Broadcasters":
-    st.title("Broadcasters" if is_owner else "My broadcasters")
+    st.title("Broadcasters" if is_owner else "My Broadcasters")
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
@@ -2064,7 +2137,8 @@ elif st.session_state.page == "Broadcasters":
     col, asc = sort_map[sort_choice]
     view = view.sort_values(col, ascending=asc, na_position="last").reset_index(drop=True)
 
-    st.caption(f"{len(view)} broadcaster(s)")
+    broadcaster_label = "broadcaster" if len(view) == 1 else "broadcasters"
+    st.caption(f"{len(view)} {broadcaster_label}")
     show_cols = ["broadcaster_name", "sub_agency", "status", "diamonds_redeemed",
                  "streaming_days", "diamonds_per_day", "growth_pct"] if is_owner else \
                 ["broadcaster_name", "status", "diamonds_redeemed", "streaming_days", "diamonds_per_day", "growth_pct"]
@@ -2162,7 +2236,7 @@ elif st.session_state.page == "SubAgencies":
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="overview-hero"><div><div class="overview-eyebrow">Recruitment analytics</div>
-    <h1>Recruiter Dashboard</h1><p>Compare recruiter contribution, activity, retention, commission and net Agency value.</p>
+    <h1>Recruiter Dashboard</h1><p>Compare recruiter contribution, activity, retention, commission, and net agency value.</p>
     </div><div class="overview-period-pill">Recruiter performance</div></div>
     """, unsafe_allow_html=True)
     dashboard_section_control("recruiter_dashboard", ["Overview", "Performance", "Commission", "Roster"])
@@ -2328,7 +2402,7 @@ elif st.session_state.page == "SubAgencies":
     recruiter_roster_panel = dashboard_panel("recruiter_dashboard", "Roster")
     recruiter_roster_panel.__enter__()
     if agencies:
-        st.markdown("### Recruiter detail")
+        st.markdown("### Recruiter Detail")
         selected_recruiter = st.selectbox("Select recruiter", agencies, key="recruiter_detail")
         recruiter_roster = utils.filter_by_agency(df, selected_recruiter).copy()
         recruiter_prev = utils.filter_by_agency(df_prev, selected_recruiter) if not df_prev.empty else pd.DataFrame()
@@ -2405,7 +2479,7 @@ elif st.session_state.page == "Assign":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("Assign broadcasters")
+    st.title("Assign Broadcasters")
     st.caption("Pick a month already uploaded, then assign broadcasters to a Sub-Agency.")
 
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
@@ -2431,7 +2505,7 @@ elif st.session_state.page == "Assign":
         column_config=table_column_config(assignment_columns),
     )
 
-    st.markdown("##### Assign selected")
+    st.markdown("##### Assign Selected")
     options = view["profile_url"].tolist()
     labels = dict(zip(view["profile_url"], view["broadcaster_name"]))
     selected = st.multiselect("Pick broadcasters (by name)", options, format_func=lambda u: labels.get(u, u))
@@ -2447,7 +2521,8 @@ elif st.session_state.page == "Assign":
                 "sub_agency", target_agency, f"Count: {len(selected)}",
             )
             refresh_caches()
-            st.toast(f"Assigned {len(selected)} broadcaster(s) to {target_agency}.", icon="\u2705")
+            assigned_label = "broadcaster" if len(selected) == 1 else "broadcasters"
+            st.toast(f"Assigned {len(selected)} {assigned_label} to {target_agency}.", icon="\u2705")
             st.rerun()
 
 # ============================================================ CREATE AGENCY
@@ -2477,7 +2552,7 @@ elif st.session_state.page == "CreateAgency":
         f"**USD {example_commission:,.2f}**."
     )
 
-    st.markdown("###### Login access")
+    st.markdown("###### Login Access")
     make_login = st.checkbox("Also create a login for this partner", value=True, key=f"{form_key}_make_login")
     login_email, password = "", ""
     if make_login:
@@ -2558,7 +2633,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     upload_form_version_key = f"upload_form_version_{ptype}"
     upload_form_version = int(st.session_state.get(upload_form_version_key, 0))
     upload_form_key = f"upload_{ptype}_{upload_form_version}"
-    st.title(f"Upload {ptype} report")
+    st.title(f"Upload {ptype.title()} Report")
     st.caption("Uploads add new broadcasters and update matching profiles. Existing profiles remain available.")
 
     default_period = dt.date.today().strftime("%Y-%m") if ptype == "monthly" else dt.date.today().isoformat()
@@ -2576,7 +2651,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         st.error("Period format looks off. Use YYYY-MM for monthly (e.g. 2026-08) or YYYY-MM-DD for daily.")
 
     uploaded = st.file_uploader(
-        "Tango referral_statistics CSV", type=["csv"], key=f"{upload_form_key}_file"
+        "Tango Referral Statistics CSV", type=["csv"], key=f"{upload_form_key}_file"
     )
 
     if uploaded is not None and uploaded.size > 10 * 1024 * 1024:
@@ -2599,7 +2674,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         existing_count = len(clean_df) - new_count
         unassigned_count = int((~clean_df["profile_url"].isin(assigned_urls)).sum())
 
-        st.markdown("##### Review before saving")
+        st.markdown("##### Review Before Saving")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Records", len(clean_df))
         c2.metric("Recognized", existing_count)
@@ -2614,7 +2689,7 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
             column_config=table_column_config(preview_columns),
         )
 
-        if st.button("Confirm upload", type="primary", key=f"{upload_form_key}_confirm"):
+        if st.button("Confirm Upload", type="primary", key=f"{upload_form_key}_confirm"):
             store.save_period(clean_df, period.strip(), ptype, business_id)
             if not is_owner:
                 unassigned_here = [u for u in clean_df["profile_url"] if u not in assigned_urls]
@@ -2637,22 +2712,28 @@ elif st.session_state.page == "UserAccess":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("User access")
+    password_reset_notice = st.session_state.pop("_password_reset_notice", None)
+    if password_reset_notice:
+        st.toast(password_reset_notice, icon="\u2705")
+    st.title("User Access")
 
-    st.markdown("##### Create user")
+    st.markdown("##### Create User")
     c1, c2 = st.columns(2)
     with c1:
         new_email = st.text_input("Email", key="ua_email")
         new_name = st.text_input("Name", key="ua_name")
     with c2:
-        new_role = st.selectbox("Role", ["sub_agency", "owner"], key="ua_role")
+        new_role = st.selectbox(
+            "Role", ["sub_agency", "owner"], key="ua_role",
+            format_func=lambda role: "Sub-Agency" if role == "sub_agency" else "Agency Owner",
+        )
         new_agency = None
         if new_role == "sub_agency":
             agencies = load_agencies(business_id)
             new_agency = st.selectbox("Sub-Agency", agencies, key="ua_agency") if agencies else None
         new_password = st.text_input("Password", type="password", key="ua_password")
 
-    if st.button("Create user", type="primary"):
+    if st.button("Create User", type="primary"):
         if not is_valid_email(new_email):
             st.error("Enter a valid email address.")
         elif is_bootstrap_identity(new_email):
@@ -2675,7 +2756,7 @@ elif st.session_state.page == "UserAccess":
             else:
                 st.error(msg)
 
-    st.markdown("##### Existing users")
+    st.markdown("##### Existing Users")
     users_df = load_business_users(business_id)
     if users_df.empty:
         st.caption("No additional users yet \u2014 you're the only login for this agency.")
@@ -2684,7 +2765,8 @@ elif st.session_state.page == "UserAccess":
             with st.container(border=True):
                 c1, c2, c3 = st.columns([3, 2, 2])
                 agency_bit = f" \u00b7 {r['sub_agency']}" if r["sub_agency"] else ""
-                c1.markdown(f"**{r['name']}**  \n`{r['username']}` \u00b7 {r['role']}{agency_bit}")
+                role_label = "Sub-Agency" if r["role"] == "sub_agency" else "Agency Owner"
+                c1.markdown(f"**{r['name']}**  \n`{r['username']}` \u00b7 {role_label}{agency_bit}")
                 c2.markdown(f"Status: **{r['status']}**")
                 with c3:
                     if r["status"] == "Active":
@@ -2701,15 +2783,17 @@ elif st.session_state.page == "UserAccess":
                                                      "account", r["username"])
                             refresh_caches()
                             st.rerun()
-                with st.popover("Reset password"):
-                    newpw = st.text_input("New password", key=f"pw_{r['username']}")
-                    if st.button("Save", key=f"savepw_{r['username']}"):
+                with st.popover("Reset Password"):
+                    newpw = st.text_input("New password", type="password", key=f"pw_{r['username']}")
+                    if st.button("Save Password", type="primary", key=f"savepw_{r['username']}"):
                         if newpw.strip():
                             ok, message = store.reset_user_password(r["username"], newpw.strip())
                             if ok:
                                 store.log_security_event("password_reset", username, user_role, business_id,
                                                          "account", r["username"])
-                                st.success(message)
+                                refresh_caches()
+                                st.session_state["_password_reset_notice"] = message
+                                st.rerun()
                             else:
                                 st.error(message)
                         else:
@@ -2720,8 +2804,11 @@ elif st.session_state.page == "DataManagement":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
-    st.title("Data management")
-    ptype = st.radio("Report type", ["monthly", "daily"], horizontal=True, key="dm_ptype")
+    st.title("Data Management")
+    ptype = st.radio(
+        "Report Type", ["monthly", "daily"], horizontal=True, key="dm_ptype",
+        format_func=str.title,
+    )
     all_periods = sorted(store.list_periods(ptype, business_id, exclude_archived=False), reverse=True)
     archived_set = store.get_archived_periods(business_id)
 
@@ -2752,7 +2839,7 @@ elif st.session_state.page == "DataManagement":
                                                      "report_period", f"{ptype}:{p}")
                             refresh_caches()
                             st.rerun()
-                    if b3.button("Add / update", key=f"replace_{ptype}_{p}"):
+                    if b3.button("Add or Update", key=f"replace_{ptype}_{p}"):
                         st.session_state[f"period_{ptype}"] = p
                         st.session_state.page = "UploadMonthly" if ptype == "monthly" else "UploadDaily"
                         st.rerun()
@@ -2767,11 +2854,11 @@ elif st.session_state.page == "DataManagement":
 
     st.markdown("---")
     with st.container(border=True):
-        st.markdown("##### :red[Danger zone]")
+        st.markdown("##### :red[Danger Zone]")
         st.caption("Permanently deletes a period's numbers. Sub-Agency assignments are not affected.")
         target = st.selectbox("Period to clear", all_periods, key="dm_clear_target") if all_periods else None
         confirm = st.checkbox(f"I understand this deletes {ptype} data for the selected period", key="dm_confirm")
-        if st.button("Clear this period", type="primary", disabled=not (confirm and target)):
+        if st.button("Clear This Period", type="primary", disabled=not (confirm and target)):
             store.clear_period(target, ptype, business_id)
             store.log_security_event("period_cleared", username, user_role, business_id,
                                      "report_period", f"{ptype}:{target}")
@@ -2780,7 +2867,7 @@ elif st.session_state.page == "DataManagement":
             st.rerun()
 
     st.markdown("---")
-    st.markdown("##### Security activity")
+    st.markdown("##### Security Activity")
     st.caption("Recent sign-ins and security-sensitive changes in this agency workspace.")
     audit_df = store.get_security_audit(business_id, limit=200)
     if audit_df.empty:
