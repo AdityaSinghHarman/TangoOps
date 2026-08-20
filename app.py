@@ -161,20 +161,20 @@ st.markdown("""
 .overview-hero p{ color:#687165; font-size:.95rem; margin:0; }
 .overview-eyebrow{ color:#4D7B2E; font-size:.73rem; font-weight:750; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.55rem; }
 .overview-period-pill{ color:#43513E; background:#FFFFFF; border:1px solid #DEE5DA; border-radius:.75rem; padding:.6rem .8rem; font-size:.78rem; font-weight:650; }
-.overview-kpi{ min-height:150px; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; padding:1.15rem 1.2rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
+.overview-kpi{ min-height:150px; height:100%; display:flex; flex-direction:column; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; padding:1.15rem 1.2rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
 .overview-kpi-top{ display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
 .overview-kpi-label{ color:#667063; font-size:.78rem; font-weight:650; }
 .overview-kpi-icon{ width:2rem; height:2rem; display:grid; place-items:center; color:#47742B; background:#EAF3E4; border-radius:.65rem; font-size:1rem; }
 .overview-kpi-value{ color:#182116; font-size:1.85rem; line-height:1; font-weight:760; letter-spacing:-.035em; }
-.overview-kpi-note{ color:#778073; font-size:.73rem; margin-top:.75rem; }
+.overview-kpi-note{ color:#778073; font-size:.73rem; margin-top:auto; padding-top:.75rem; }
 .overview-kpi-note.up{ color:#287331; }.overview-kpi-note.down{ color:#B1453D; }
 .overview-section{ margin:1.7rem 0 .8rem; }
 .overview-section h2{ color:#1C251A; font-size:1.25rem; margin:0 0 .25rem; }
 .overview-section p{ color:#747C70; font-size:.84rem; margin:0; }
-.insight-card{ min-height:116px; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; padding:1.05rem 1.1rem; }
+.insight-card{ min-height:116px; height:100%; display:flex; flex-direction:column; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; padding:1.05rem 1.1rem; }
 .insight-label{ color:#70796C; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-bottom:.65rem; }
 .insight-value{ color:#1B2419; font-size:1.35rem; font-weight:750; letter-spacing:-.025em; }
-.insight-caption{ color:#727A6F; font-size:.76rem; margin-top:.35rem; }
+.insight-caption{ color:#727A6F; font-size:.76rem; margin-top:auto; padding-top:.35rem; }
 .stApp:has(.owner-overview-page) div[data-testid="stVerticalBlockBorderWrapper"]{ background:#FFFFFF; border-color:#E0E5DC; border-radius:1rem; box-shadow:0 2px 8px rgba(30,45,23,.025); }
 .stApp:has(.owner-overview-page) div[data-baseweb="select"] > div{ background:#FFFFFF; border-color:#D9E0D5; }
 
@@ -182,7 +182,7 @@ st.markdown("""
 .command-grid-title{ display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:1.6rem 0 .75rem; }
 .command-grid-title h2{ color:#172016; font-size:1.2rem; margin:0; }
 .command-grid-title p{ color:#737D70; font-size:.82rem; margin:.2rem 0 0; }
-.command-score{ min-height:164px; display:flex; align-items:center; gap:1.15rem; padding:1.2rem;
+.command-score{ min-height:164px; height:100%; display:flex; align-items:center; gap:1.15rem; padding:1.2rem;
   background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; }
 .command-score-ring{ --score:0; position:relative; flex:none; width:6.25rem; height:6.25rem; border-radius:50%;
   display:grid; place-items:center; background:conic-gradient(#74A843 calc(var(--score)*1%),#E8EDE5 0); }
@@ -190,7 +190,7 @@ st.markdown("""
 .command-score-value{ position:relative; color:#172016; font-size:1.7rem; font-weight:780; }
 .command-score-copy h3{ color:#1C251A; font-size:1rem; margin:0 0 .35rem; }
 .command-score-copy p{ color:#6E786B; font-size:.76rem; line-height:1.45; margin:0; }
-.command-alert{ min-height:164px; padding:1.2rem; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; }
+.command-alert{ min-height:164px; height:100%; display:flex; flex-direction:column; padding:1.2rem; background:#FFFFFF; border:1px solid #E0E5DC; border-radius:1rem; }
 .command-alert-label{ color:#B05C16; font-size:.7rem; font-weight:750; text-transform:uppercase; letter-spacing:.07em; }
 .command-alert-value{ color:#1B2419; font-size:1.8rem; font-weight:780; margin:.65rem 0 .25rem; }
 .command-alert-copy{ color:#70796D; font-size:.76rem; line-height:1.45; }
@@ -198,7 +198,7 @@ st.markdown("""
 .command-progress span{ display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#315E18,#9ACB31); }
 .command-table-badge{ display:inline-flex; align-items:center; padding:.22rem .5rem; border-radius:999px;
   color:#2E6B2A; background:#EAF4E5; font-size:.68rem; font-weight:700; }
-.command-footnote{ color:#788176; font-size:.7rem; margin-top:.45rem; }
+.command-footnote{ color:#788176; font-size:.7rem; margin-top:auto; padding-top:.45rem; }
 .stApp:has(.owner-overview-page) div[data-testid="stMetric"]{ background:#FFFFFF; border:1px solid #E0E5DC;
   border-radius:.9rem; padding:.85rem 1rem; }
 
@@ -1605,7 +1605,7 @@ elif st.session_state.page == "Admin":
         </div>
         """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         overview_kpi_card("Total broadcasters", f"{kpis['broadcasters']:,}", "♟",
                           broadcaster_note, broadcaster_direction)
@@ -1615,7 +1615,6 @@ elif st.session_state.page == "Admin":
     with c3:
         overview_kpi_card("Diamonds redeemed", f"{kpis['diamonds_redeemed']:,}", "◇",
                           diamond_note, diamond_direction)
-    c4, c5, c6 = st.columns(3)
     with c4:
         if is_owner:
             overview_kpi_card("Agency earnings", f"${kpis['my_earnings_usd']:,.2f}", "$",
@@ -1628,21 +1627,19 @@ elif st.session_state.page == "Admin":
                 "Commission earnings", f"${sub_commission_usd:,.2f}", "$",
                 f"{sub_commission_pct:g}% of ${sub_gross_usd:,.2f} redeemed value",
             )
+    c5, c6, c7, c8 = st.columns(4)
     with c5:
         overview_kpi_card("Days streamed", f"{kpis['days_worked']:,}", "◷",
                           days_note, days_direction)
     with c6:
         overview_kpi_card("Average diamonds per broadcaster", f"{avg_dpb:,.1f}", "↗",
                           f"Across {n_agencies} active Sub-Agencies" if is_owner else "Current roster average")
-
-    if is_owner:
-        extended1, extended2, extended3, extended4 = st.columns(4)
-        extended1.metric("New broadcasters", f"{int(df_current['is_new'].sum()):,}",
-                         "Added in the selected month")
-        extended2.metric("Diamonds earned", f"{float(df_current['diamonds_earned'].sum()):,.0f}")
-        extended3.metric("Creator revenue", f"${float(df_current['usd_earned'].sum()):,.2f}",
-                         "USD Earned from Tango report")
-        extended4.metric("Streaming hours", f"{float(df_current['streaming_hours'].sum()):,.1f}")
+    with c7:
+        overview_kpi_card("New broadcasters", f"{int(df_current['is_new'].sum()):,}", "+",
+                          "Added in the selected month")
+    with c8:
+        overview_kpi_card("Streaming hours", f"{float(df_current['streaming_hours'].sum()):,.1f}", "◴",
+                          "Total hours in the selected month")
     my_overview_panel.__exit__(None, None, None)
 
     my_financials_panel = dashboard_panel("my_dashboard", "Financials")
