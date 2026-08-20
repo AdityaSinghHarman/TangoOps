@@ -19,6 +19,7 @@ import psycopg2
 TABLES = (
     "businesses", "users", "agencies", "raw_uploads", "assignments",
     "assignment_log", "archived_periods", "profiles", "security_audit",
+    "broadcaster_payout_rules", "broadcaster_payout_status",
 )
 SEQUENCES = ("raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq")
 TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")

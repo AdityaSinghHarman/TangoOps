@@ -24,7 +24,8 @@ DECLARE
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'businesses', 'users', 'agencies', 'raw_uploads', 'assignments',
-        'assignment_log', 'archived_periods', 'profiles', 'security_audit'
+        'assignment_log', 'archived_periods', 'profiles', 'security_audit',
+        'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO tangoops_app',

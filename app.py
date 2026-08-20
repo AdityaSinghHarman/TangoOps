@@ -564,6 +564,30 @@ section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
 .stApp div[data-testid="stSegmentedControl"] label:has(input:checked){
   color:var(--so-brand); background:#F1EDFF; border-radius:.6rem;
 }
+
+/* Broadcaster payouts */
+.payout-calc-strip{
+  display:flex; align-items:center; gap:.75rem; padding:.85rem 1rem; margin:.15rem 0 .2rem;
+  color:var(--so-brand); background:#F5F2FF; border:1px solid #DDD4FE;
+  border-radius:var(--so-radius-control); font-size:.84rem; line-height:1.5;
+}
+.payout-calc-strip svg{ flex:0 0 1.25rem; width:1.25rem; height:1.25rem; color:var(--so-violet); }
+.payout-kpi{
+  min-height:132px; height:100%; padding:1rem 1.05rem; background:var(--so-surface);
+  border:1px solid var(--so-border); border-radius:var(--so-radius-card);
+}
+.payout-kpi-head{ display:flex; align-items:center; gap:.65rem; color:var(--so-text-muted); font-size:.76rem; font-weight:650; }
+.payout-kpi-icon{ width:2rem; height:2rem; display:grid; place-items:center; color:var(--so-violet); background:#F1EDFF; border-radius:.65rem; }
+.payout-kpi-icon svg{ width:1.05rem; height:1.05rem; }
+.payout-kpi-value{ margin-top:.85rem; color:var(--so-brand); font-size:1.7rem; line-height:1; font-weight:760; letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+.payout-kpi-note{ margin-top:.55rem; color:var(--so-text-muted); font-size:.72rem; }
+.payout-section-head{ margin:.55rem 0 .15rem; }
+.payout-section-head h2{ margin:0 0 .25rem !important; font-size:1.2rem; }
+.payout-section-head p{ margin:0; color:var(--so-text-muted); font-size:.82rem; }
+.payout-status-key{ display:flex; flex-wrap:wrap; gap:.45rem; margin:.15rem 0 .45rem; }
+.payout-status-key span{ padding:.25rem .55rem; border:1px solid var(--so-border); border-radius:999px; font-size:.7rem; color:var(--so-text-muted); background:var(--so-surface); }
+.payout-status-key .paid{ color:var(--so-success); background:#ECFDF5; border-color:#A7F3D0; }
+.payout-status-key .missing{ color:var(--so-warning); background:#FFF7ED; border-color:#FED7AA; }
 @media (max-width:900px){
   .stApp [data-testid="stMainBlockContainer"]{ padding:1.25rem 1rem 2.5rem; }
   .stApp [data-testid="stMainBlockContainer"] h1{ font-size:1.9rem; }
@@ -575,6 +599,7 @@ section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
   }
   .stApp div[data-testid="stSegmentedControl"] [role="radiogroup"]{ overflow-x:auto; justify-content:flex-start; }
   .stApp div[data-testid="stSegmentedControl"] label{ flex:0 0 auto; padding-inline:.75rem; }
+  .payout-kpi{ min-height:116px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -603,6 +628,25 @@ def overview_kpi_card(label, value, icon, note="", direction=""):
       {note_html}
     </div>
     """, unsafe_allow_html=True)
+
+
+PAYOUT_ICONS = {
+    "diamond": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8 4-5h10l4 5-9 13L3 8Z"/><path d="m3 8 9 4 9-4M7 3l5 9 5-9M12 12v9"/></svg>',
+    "wallet": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6.5h14a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h12"/><path d="M15 11h7v4h-7a2 2 0 1 1 0-4Z"/></svg>',
+    "chart": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/><path d="M2 20h22"/></svg>',
+    "clock": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    "calculator": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h2M14 11h2M8 16h2M14 16h2"/></svg>',
+}
+
+
+def payout_kpi_card(label, value, icon, note):
+    st.markdown(
+        f'<div class="payout-kpi"><div class="payout-kpi-head">'
+        f'<span class="payout-kpi-icon">{PAYOUT_ICONS[icon]}</span>{html.escape(label)}</div>'
+        f'<div class="payout-kpi-value">{html.escape(value)}</div>'
+        f'<div class="payout-kpi-note">{html.escape(note)}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 TABLE_COLUMN_CONFIG = {
@@ -841,7 +885,7 @@ allowed_pages_by_role = {
     "owner": {
         "Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "Assign",
         "SubAgencies", "CreateAgency", "UploadMonthly", "UploadDaily",
-        "UserAccess", "DataManagement", "MyProfile",
+        "UserAccess", "DataManagement", "MyProfile", "Payouts",
     },
     "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile"},
 }
@@ -928,6 +972,7 @@ with st.sidebar:
             nav_button("My Dashboard", "Admin", ":material/dashboard:")
             nav_button("Broadcaster Dashboard", "Statistics", ":material/monitoring:")
             nav_button("Recruiter Dashboard", "SubAgencies", ":material/hub:")
+            nav_button("Payout Dashboard", "Payouts", ":material/account_balance_wallet:")
 
         with st.container(border=True):
             st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
@@ -1043,6 +1088,21 @@ def load_business_users(biz_id):
     return store.get_users(biz_id)
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_payout_rules(biz_id):
+    return store.get_payout_rules(biz_id)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_effective_payout_rules(biz_id, period):
+    return store.get_effective_payout_rules(biz_id, period)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_payout_statuses(biz_id, period):
+    return store.get_payout_statuses(biz_id, period)
+
+
 def refresh_caches():
     load_all_raw.clear()
     load_assignments.clear()
@@ -1051,6 +1111,9 @@ def refresh_caches():
     load_businesses_df.clear()
     load_business_users.clear()
     load_profile.clear()
+    load_payout_rules.clear()
+    load_effective_payout_rules.clear()
+    load_payout_statuses.clear()
 
 
 def period_data(period, period_type, force_agency=None):
@@ -2092,6 +2155,347 @@ elif st.session_state.page == "Statistics":
         file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
     )
     broadcaster_directory_panel.__exit__(None, None, None)
+
+# ================================================================== PAYOUTS
+elif st.session_state.page == "Payouts":
+    if not is_owner:
+        st.error("Owner access only.")
+        st.stop()
+
+    payout_notice = st.session_state.pop("_payout_notice", None)
+    if payout_notice:
+        st.toast(payout_notice, icon="✅")
+
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="overview-hero"><div><div class="overview-eyebrow">Payout operations</div>
+    <h1>Broadcaster Payouts</h1><p>Set broadcaster payout rates and calculate monthly amounts from approved reports.</p>
+    </div><div class="overview-period-pill">Monthly payout control</div></div>
+    """, unsafe_allow_html=True)
+    dashboard_section_control(
+        "payout_dashboard", ["Monthly Summary", "Payout Rules", "Statements", "History"]
+    )
+
+    monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
+    if not monthly_periods:
+        st.info("Upload and confirm a monthly report to calculate broadcaster payouts.")
+        st.stop()
+
+    current_period = st.selectbox("Reporting month", monthly_periods, key="payout_month")
+    payout_source = period_data(current_period, "monthly")
+    if payout_source.empty:
+        st.info("No broadcaster data is available for this reporting month.")
+        st.stop()
+
+    payout_source["profile_url"] = payout_source["profile_url"].fillna("").astype(str).str.strip()
+    payout_source["broadcaster_name"] = payout_source["broadcaster_name"].fillna("Unnamed broadcaster")
+    payout_source["sub_agency"] = payout_source["sub_agency"].fillna("Agency Direct")
+    payout_source = payout_source[payout_source["profile_url"] != ""]
+    payout_rows = (
+        payout_source.groupby("profile_url", as_index=False)
+        .agg(
+            broadcaster_name=("broadcaster_name", "last"),
+            sub_agency=("sub_agency", "last"),
+            diamonds_redeemed=("diamonds_redeemed", "sum"),
+        )
+    )
+    payout_rows["redeemed_value"] = payout_rows["diamonds_redeemed"] / DIAMONDS_PER_USD
+
+    effective_rules = load_effective_payout_rules(business_id, current_period)
+    if not effective_rules.empty:
+        payout_rows = payout_rows.merge(
+            effective_rules[["profile_url", "effective_from", "agency_rate_pct", "payout_rate_pct"]],
+            on="profile_url", how="left",
+        )
+    else:
+        payout_rows["effective_from"] = None
+        payout_rows["agency_rate_pct"] = None
+        payout_rows["payout_rate_pct"] = None
+    for numeric_column in ("agency_rate_pct", "payout_rate_pct"):
+        payout_rows[numeric_column] = pd.to_numeric(payout_rows[numeric_column], errors="coerce")
+    payout_rows["agency_earnings"] = (
+        payout_rows["redeemed_value"] * payout_rows["agency_rate_pct"] / 100
+    )
+    payout_rows["amount_payable"] = (
+        payout_rows["redeemed_value"] * payout_rows["payout_rate_pct"] / 100
+    )
+    payout_rows["net_earnings"] = payout_rows["agency_earnings"] - payout_rows["amount_payable"]
+
+    payout_statuses = load_payout_statuses(business_id, current_period)
+    if not payout_statuses.empty:
+        payout_rows = payout_rows.merge(
+            payout_statuses[["profile_url", "status", "paid_at", "paid_by"]],
+            on="profile_url", how="left",
+        )
+    else:
+        payout_rows["status"] = None
+        payout_rows["paid_at"] = None
+        payout_rows["paid_by"] = None
+    payout_rows["status"] = payout_rows["status"].fillna("Pending")
+    missing_rule = payout_rows["payout_rate_pct"].isna()
+    payout_rows.loc[missing_rule, "status"] = "Rate Missing"
+
+    total_redeemed = float(payout_rows["redeemed_value"].sum())
+    total_payout = float(payout_rows["amount_payable"].fillna(0).sum())
+    total_net = float(payout_rows["net_earnings"].fillna(0).sum())
+    pending_count = int((payout_rows["status"] == "Pending").sum())
+
+    payout_summary_panel = dashboard_panel("payout_dashboard", "Monthly Summary")
+    payout_summary_panel.__enter__()
+    pk1, pk2, pk3, pk4 = st.columns(4)
+    with pk1:
+        payout_kpi_card("Redeemed Value", f"${total_redeemed:,.2f}", "diamond", f"{current_period} approved report")
+    with pk2:
+        payout_kpi_card("Broadcaster Payouts", f"${total_payout:,.2f}", "wallet", "Calculated from saved rates")
+    with pk3:
+        payout_kpi_card("Net Agency Earnings", f"${total_net:,.2f}", "chart", "After broadcaster payouts")
+    with pk4:
+        payout_kpi_card("Pending Payments", f"{pending_count:,}", "clock", "Ready to be marked paid")
+
+    st.markdown(
+        f'<div class="payout-calc-strip">{PAYOUT_ICONS["calculator"]}'
+        '<div><strong>Automatic calculation:</strong> Diamonds redeemed ÷ 200 = redeemed value. '
+        'Redeemed value × agency rate = agency earnings. Redeemed value × payout rate = amount payable.</div></div>',
+        unsafe_allow_html=True,
+    )
+    if int(missing_rule.sum()):
+        st.warning(
+            f"{int(missing_rule.sum())} broadcaster(s) need a payout rule before their payment can be finalized."
+        )
+
+    table_col, rule_col = st.columns([2.6, 1], gap="large")
+    with table_col:
+        st.markdown('<div class="payout-section-head"><h2>Monthly Payout Register</h2>'
+                    '<p>Review calculated payouts, select pending rows, and record completed payments.</p></div>',
+                    unsafe_allow_html=True)
+        pf1, pf2 = st.columns([1.5, 1])
+        payout_search = pf1.text_input(
+            "Search broadcaster", placeholder="Name or Tango profile", key="payout_search"
+        )
+        status_filter = pf2.selectbox(
+            "Payment status", ["All statuses", "Pending", "Paid", "Rate Missing"], key="payout_status_filter"
+        )
+        payout_view = payout_rows.copy()
+        if payout_search.strip():
+            payout_needle = payout_search.strip()
+            payout_view = payout_view[
+                payout_view["broadcaster_name"].str.contains(payout_needle, case=False, na=False)
+                | payout_view["profile_url"].str.contains(payout_needle, case=False, na=False)
+            ]
+        if status_filter != "All statuses":
+            payout_view = payout_view[payout_view["status"] == status_filter]
+        payout_view = payout_view.sort_values(
+            "amount_payable", ascending=False, na_position="last"
+        ).reset_index(drop=True)
+        payout_view.insert(0, "selected", False)
+        editor_columns = [
+            "selected", "broadcaster_name", "sub_agency", "diamonds_redeemed", "redeemed_value",
+            "agency_rate_pct", "payout_rate_pct", "amount_payable", "net_earnings", "status",
+        ]
+        edited_payouts = st.data_editor(
+            payout_view[editor_columns], hide_index=True, width="stretch", height=390,
+            disabled=[column for column in editor_columns if column != "selected"],
+            key=f"payout_register_{current_period}",
+            column_config={
+                "selected": st.column_config.CheckboxColumn("Select", width="small"),
+                "broadcaster_name": st.column_config.TextColumn("Broadcaster", width="medium"),
+                "sub_agency": st.column_config.TextColumn("Recruitment Source", width="medium"),
+                "diamonds_redeemed": st.column_config.NumberColumn("Diamonds Redeemed", format="localized"),
+                "redeemed_value": st.column_config.NumberColumn("Redeemed Value", format="$%.2f"),
+                "agency_rate_pct": st.column_config.NumberColumn("Agency Rate", format="%.2f%%"),
+                "payout_rate_pct": st.column_config.NumberColumn("Payout Rate", format="%.2f%%"),
+                "amount_payable": st.column_config.NumberColumn("Amount Payable", format="$%.2f"),
+                "net_earnings": st.column_config.NumberColumn("Net Earnings", format="$%.2f"),
+                "status": st.column_config.TextColumn("Status", width="small"),
+            },
+        )
+        selected_positions = edited_payouts.index[edited_payouts["selected"]].tolist()
+        selected_profiles = payout_view.loc[selected_positions, "profile_url"].tolist()
+        ready_profiles = payout_view[
+            payout_view["profile_url"].isin(selected_profiles) & (payout_view["status"] == "Pending")
+        ]["profile_url"].tolist()
+        st.markdown('<div class="payout-status-key"><span>Pending</span><span class="paid">Paid</span>'
+                    '<span class="missing">Rate Missing</span></div>', unsafe_allow_html=True)
+        action_left, action_right = st.columns([1, 1])
+        with action_left:
+            if st.button(
+                "Mark Selected as Paid", type="primary", width="stretch",
+                disabled=not ready_profiles, icon=":material/task_alt:", key="mark_payouts_paid",
+            ):
+                store.mark_payouts_paid(business_id, current_period, ready_profiles, username)
+                store.log_security_event(
+                    "payout_marked_paid", username, user_role, business_id,
+                    "monthly_payout", current_period,
+                    f"profiles={len(ready_profiles)}",
+                )
+                refresh_caches()
+                st.session_state["_payout_notice"] = f"{len(ready_profiles)} payout(s) marked as paid."
+                st.rerun()
+        with action_right:
+            statement_export = payout_rows.copy()
+            statement_export.insert(0, "reporting_month", current_period)
+            st.download_button(
+                "Export Statement", utils.safe_csv_bytes(statement_export),
+                file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
+                width="stretch", icon=":material/download:", key="payout_export_summary",
+            )
+
+    with rule_col:
+        with st.container(border=True):
+            st.markdown("### Set Broadcaster Payout")
+            st.caption("Rates apply from the selected month onward. Earlier statements stay unchanged.")
+            roster = (
+                load_all_raw(business_id)
+                .sort_values("period")
+                .drop_duplicates("profile_url", keep="last")
+            )
+            roster = roster[roster["profile_url"].fillna("").astype(str).str.strip() != ""]
+            roster_labels = {
+                row["profile_url"]: f"{row['broadcaster_name']} · {str(row['profile_url']).rstrip('/').split('/')[-1]}"
+                for _, row in roster.iterrows()
+            }
+            selected_profile = st.selectbox(
+                "Broadcaster", roster_labels.keys(), format_func=lambda value: roster_labels[value],
+                key="payout_rule_profile",
+            )
+            effective_options = sorted(set(monthly_periods + [dt.date.today().strftime("%Y-%m")]), reverse=True)
+            effective_from = st.selectbox("Effective From", effective_options, key="payout_rule_month")
+            selected_name = roster_labels[selected_profile].rsplit(" · ", 1)[0]
+            saved_rules = load_payout_rules(business_id)
+            saved_match = saved_rules[
+                (saved_rules["profile_url"] == selected_profile)
+                & (saved_rules["effective_from"] == effective_from)
+            ] if not saved_rules.empty else pd.DataFrame()
+            default_agency_rate = float(saved_match.iloc[0]["agency_rate_pct"]) if not saved_match.empty else 10.0
+            default_payout_rate = float(saved_match.iloc[0]["payout_rate_pct"]) if not saved_match.empty else 3.5
+            agency_rates = [10.0, 12.5, 15.0, 17.5, 20.0]
+            if default_agency_rate not in agency_rates:
+                agency_rates.append(default_agency_rate)
+                agency_rates.sort()
+            agency_rate = st.selectbox(
+                "Agency Earning Rate", agency_rates,
+                index=agency_rates.index(default_agency_rate), format_func=lambda value: f"{value:g}%",
+                key=f"payout_agency_rate_{selected_profile}_{effective_from}",
+                help="The percentage this agency earns from the broadcaster's redeemed value.",
+            )
+            payout_rate = st.number_input(
+                "Broadcaster Payout Rate", min_value=0.0, max_value=20.0,
+                value=default_payout_rate, step=0.5, format="%.2f",
+                key=f"payout_rate_{selected_profile}_{effective_from}",
+                help="The percentage paid back to this broadcaster each month.",
+            )
+            selected_month_row = payout_rows[payout_rows["profile_url"] == selected_profile]
+            preview_value = float(selected_month_row.iloc[0]["redeemed_value"]) if not selected_month_row.empty else 0.0
+            preview_agency = preview_value * float(agency_rate) / 100
+            preview_payout = preview_value * float(payout_rate) / 100
+            if payout_rate > agency_rate:
+                st.error("Broadcaster payout rate cannot exceed the agency earning rate.")
+            st.info(
+                f"**{current_period} preview**  \nRedeemed value: **${preview_value:,.2f}**  \n"
+                f"Broadcaster payout: **${preview_payout:,.2f}**  \n"
+                f"Net Agency earnings: **${preview_agency - preview_payout:,.2f}**"
+            )
+            if st.button(
+                "Save Payout Rule", type="primary", width="stretch",
+                icon=":material/save:", key="save_payout_rule",
+                disabled=payout_rate > agency_rate,
+            ):
+                try:
+                    store.save_payout_rule(
+                        business_id, selected_profile, selected_name, effective_from,
+                        agency_rate, payout_rate, username,
+                    )
+                    store.log_security_event(
+                        "payout_rule_saved", username, user_role, business_id,
+                        "broadcaster", selected_profile,
+                        f"effective_from={effective_from};agency_rate={agency_rate:g};payout_rate={payout_rate:g}",
+                    )
+                    refresh_caches()
+                    st.session_state["_payout_notice"] = f"Payout rule saved for {selected_name}."
+                    st.rerun()
+                except ValueError as error:
+                    st.error(str(error))
+    payout_summary_panel.__exit__(None, None, None)
+
+    payout_rules_panel = dashboard_panel("payout_dashboard", "Payout Rules")
+    payout_rules_panel.__enter__()
+    st.markdown('<div class="payout-section-head"><h2>Effective-Dated Payout Rules</h2>'
+                '<p>Each change starts in its effective month and preserves all earlier calculations.</p></div>',
+                unsafe_allow_html=True)
+    all_rules = load_payout_rules(business_id)
+    if all_rules.empty:
+        st.info("No payout rules have been saved yet. Add the first rule from Monthly Summary.")
+    else:
+        rule_view = all_rules.rename(columns={
+            "broadcaster_name": "Broadcaster", "effective_from": "Effective From",
+            "agency_rate_pct": "Agency Rate", "payout_rate_pct": "Payout Rate",
+            "created_by": "Updated By", "updated_at": "Updated At",
+        })
+        st.dataframe(
+            rule_view[["Broadcaster", "profile_url", "Effective From", "Agency Rate", "Payout Rate", "Updated By", "Updated At"]],
+            hide_index=True, width="stretch",
+            column_config={
+                "profile_url": st.column_config.LinkColumn("Web Profile", display_text="Open profile"),
+                "Agency Rate": st.column_config.NumberColumn(format="%.2f%%"),
+                "Payout Rate": st.column_config.NumberColumn(format="%.2f%%"),
+                "Updated At": st.column_config.DatetimeColumn(format="D MMM YYYY, h:mm a"),
+            },
+        )
+    payout_rules_panel.__exit__(None, None, None)
+
+    payout_statements_panel = dashboard_panel("payout_dashboard", "Statements")
+    payout_statements_panel.__enter__()
+    st.markdown('<div class="payout-section-head"><h2>Monthly Statement</h2>'
+                '<p>A complete calculation and payment record for the selected reporting month.</p></div>',
+                unsafe_allow_html=True)
+    statement_columns = [
+        "broadcaster_name", "profile_url", "sub_agency", "diamonds_redeemed", "redeemed_value",
+        "agency_rate_pct", "agency_earnings", "payout_rate_pct", "amount_payable", "net_earnings", "status",
+    ]
+    st.dataframe(
+        payout_rows[statement_columns], hide_index=True, width="stretch",
+        column_config={
+            **table_column_config(["broadcaster_name", "profile_url", "sub_agency", "diamonds_redeemed"]),
+            "redeemed_value": st.column_config.NumberColumn("Redeemed Value", format="$%.2f"),
+            "agency_rate_pct": st.column_config.NumberColumn("Agency Rate", format="%.2f%%"),
+            "agency_earnings": st.column_config.NumberColumn("Agency Earnings", format="$%.2f"),
+            "payout_rate_pct": st.column_config.NumberColumn("Payout Rate", format="%.2f%%"),
+            "amount_payable": st.column_config.NumberColumn("Amount Payable", format="$%.2f"),
+            "net_earnings": st.column_config.NumberColumn("Net Earnings", format="$%.2f"),
+            "status": st.column_config.TextColumn("Payment Status"),
+        },
+    )
+    st.download_button(
+        "Download CSV Statement", utils.safe_csv_bytes(payout_rows[statement_columns]),
+        file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
+        icon=":material/download:", key="payout_export_statement",
+    )
+    payout_statements_panel.__exit__(None, None, None)
+
+    payout_history_panel = dashboard_panel("payout_dashboard", "History")
+    payout_history_panel.__enter__()
+    st.markdown('<div class="payout-section-head"><h2>Payout Activity History</h2>'
+                '<p>Rate changes and payment confirmations recorded for this agency.</p></div>',
+                unsafe_allow_html=True)
+    payout_audit = store.get_security_audit(business_id, limit=500)
+    if not payout_audit.empty:
+        payout_audit = payout_audit[payout_audit["event_type"].isin(["payout_rule_saved", "payout_marked_paid"])]
+    if payout_audit.empty:
+        st.info("No payout activity has been recorded yet.")
+    else:
+        history_view = payout_audit.rename(columns={
+            "created_at": "Date", "actor_username": "User", "event_type": "Action",
+            "target_type": "Record Type", "target_id": "Record", "details": "Details",
+        })
+        history_view["Action"] = history_view["Action"].map({
+            "payout_rule_saved": "Payout rule saved", "payout_marked_paid": "Payout marked paid",
+        })
+        st.dataframe(
+            history_view[["Date", "User", "Action", "Record Type", "Record", "Details"]],
+            hide_index=True, width="stretch",
+            column_config={"Date": st.column_config.DatetimeColumn(format="D MMM YYYY, h:mm a")},
+        )
+    payout_history_panel.__exit__(None, None, None)
 
 # =============================================================== BROADCASTERS
 elif st.session_state.page == "Broadcasters":

@@ -135,6 +135,44 @@ CREATE TABLE IF NOT EXISTS security_audit (
 CREATE INDEX IF NOT EXISTS idx_security_audit_business_time
     ON security_audit (business_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS broadcaster_payout_rules (
+    business_id TEXT NOT NULL,
+    profile_url TEXT NOT NULL,
+    broadcaster_name TEXT,
+    effective_from TEXT NOT NULL,
+    agency_rate_pct NUMERIC(5,2) NOT NULL,
+    payout_rate_pct NUMERIC(5,2) NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (business_id, profile_url, effective_from),
+    CONSTRAINT broadcaster_payout_rules_period_format
+        CHECK (effective_from ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT broadcaster_payout_rules_agency_rate
+        CHECK (agency_rate_pct BETWEEN 0 AND 20),
+    CONSTRAINT broadcaster_payout_rules_payout_rate
+        CHECK (payout_rate_pct BETWEEN 0 AND agency_rate_pct)
+);
+CREATE INDEX IF NOT EXISTS idx_payout_rules_effective
+    ON broadcaster_payout_rules (business_id, profile_url, effective_from DESC);
+
+CREATE TABLE IF NOT EXISTS broadcaster_payout_status (
+    business_id TEXT NOT NULL,
+    period TEXT NOT NULL,
+    profile_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Pending',
+    paid_at TIMESTAMP,
+    paid_by TEXT,
+    updated_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (business_id, period, profile_url),
+    CONSTRAINT broadcaster_payout_status_period_format
+        CHECK (period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT broadcaster_payout_status_value
+        CHECK (status IN ('Pending', 'Paid'))
+);
+CREATE INDEX IF NOT EXISTS idx_payout_status_period
+    ON broadcaster_payout_status (business_id, period, status);
+
 -- The browser-facing Supabase API must never expose these tables. StreamOperiq
 -- accesses Postgres only from the server, so anon/authenticated need no grants.
 DO $$
@@ -142,7 +180,8 @@ DECLARE table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'businesses', 'users', 'agencies', 'raw_uploads', 'assignments',
-        'assignment_log', 'archived_periods', 'profiles', 'security_audit'
+        'assignment_log', 'archived_periods', 'profiles', 'security_audit',
+        'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
@@ -158,6 +197,7 @@ END $$;
 RUNTIME_TABLES = (
     "businesses", "users", "agencies", "raw_uploads", "assignments",
     "assignment_log", "archived_periods", "profiles", "security_audit",
+    "broadcaster_payout_rules", "broadcaster_payout_status",
 )
 
 RUNTIME_SEQUENCES = (
@@ -395,6 +435,87 @@ def get_security_audit(business_id: str, limit: int = 200) -> pd.DataFrame:
         "SELECT created_at, actor_username, actor_role, event_type, target_type, target_id, details "
         "FROM security_audit WHERE business_id=%s ORDER BY created_at DESC LIMIT %s",
         (business_id, max(1, min(int(limit), 1000))),
+    )
+
+
+# ---------------- broadcaster payouts ----------------
+
+def get_payout_rules(business_id: str) -> pd.DataFrame:
+    """Return the full effective-dated rule history for one agency."""
+    return _query(
+        "SELECT profile_url, broadcaster_name, effective_from, agency_rate_pct, "
+        "payout_rate_pct, created_by, created_at, updated_at "
+        "FROM broadcaster_payout_rules WHERE business_id=%s "
+        "ORDER BY effective_from DESC, broadcaster_name, profile_url",
+        (business_id,),
+    )
+
+
+def get_effective_payout_rules(business_id: str, period: str) -> pd.DataFrame:
+    """Return the latest rule at or before a reporting month for each profile."""
+    return _query(
+        "SELECT DISTINCT ON (profile_url) profile_url, broadcaster_name, effective_from, "
+        "agency_rate_pct, payout_rate_pct, created_by, updated_at "
+        "FROM broadcaster_payout_rules "
+        "WHERE business_id=%s AND effective_from<=%s "
+        "ORDER BY profile_url, effective_from DESC",
+        (business_id, period),
+    )
+
+
+def save_payout_rule(business_id: str, profile_url: str, broadcaster_name: str,
+                     effective_from: str, agency_rate_pct: float,
+                     payout_rate_pct: float, created_by: str):
+    """Create or replace a broadcaster rule without rewriting earlier months."""
+    agency_rate = float(agency_rate_pct)
+    payout_rate = float(payout_rate_pct)
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", str(effective_from or "")):
+        raise ValueError("Effective month must use YYYY-MM format.")
+    if not 0 <= agency_rate <= 20:
+        raise ValueError("Agency earning rate must be between 0% and 20%.")
+    if not 0 <= payout_rate <= agency_rate:
+        raise ValueError("Broadcaster payout rate cannot exceed the agency earning rate.")
+    _execute(
+        "INSERT INTO broadcaster_payout_rules "
+        "(business_id, profile_url, broadcaster_name, effective_from, agency_rate_pct, "
+        "payout_rate_pct, created_by, created_at, updated_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,now(),now()) "
+        "ON CONFLICT (business_id, profile_url, effective_from) DO UPDATE SET "
+        "broadcaster_name=EXCLUDED.broadcaster_name, "
+        "agency_rate_pct=EXCLUDED.agency_rate_pct, "
+        "payout_rate_pct=EXCLUDED.payout_rate_pct, "
+        "created_by=EXCLUDED.created_by, updated_at=now()",
+        (business_id, profile_url, broadcaster_name, effective_from,
+         agency_rate, payout_rate, _normalize_username(created_by)),
+    )
+
+
+def get_payout_statuses(business_id: str, period: str) -> pd.DataFrame:
+    return _query(
+        "SELECT profile_url, status, paid_at, paid_by, updated_at "
+        "FROM broadcaster_payout_status WHERE business_id=%s AND period=%s",
+        (business_id, period),
+    )
+
+
+def mark_payouts_paid(business_id: str, period: str, profile_urls: list,
+                      paid_by: str):
+    """Mark selected monthly payouts paid within the authenticated business."""
+    clean_profiles = sorted({str(value).strip() for value in profile_urls if str(value).strip()})
+    if not clean_profiles:
+        return
+    now = dt.datetime.utcnow()
+    rows = [
+        (business_id, period, profile_url, "Paid", now, _normalize_username(paid_by), now)
+        for profile_url in clean_profiles
+    ]
+    _execute_values(
+        "INSERT INTO broadcaster_payout_status "
+        "(business_id, period, profile_url, status, paid_at, paid_by, updated_at) VALUES %s "
+        "ON CONFLICT (business_id, period, profile_url) DO UPDATE SET "
+        "status=EXCLUDED.status, paid_at=EXCLUDED.paid_at, "
+        "paid_by=EXCLUDED.paid_by, updated_at=EXCLUDED.updated_at",
+        rows,
     )
 
 

@@ -82,6 +82,18 @@ def main():
                 (business_id, username, business_id),
             )
             cur.fetchone()
+            cur.execute(
+                "INSERT INTO broadcaster_payout_rules "
+                "(business_id, profile_url, broadcaster_name, effective_from, agency_rate_pct, "
+                "payout_rate_pct, created_by) VALUES (%s,%s,%s,'2099-01',10,3.5,%s)",
+                (business_id, profile_url, marker, username),
+            )
+            cur.execute(
+                "INSERT INTO broadcaster_payout_status "
+                "(business_id, period, profile_url, status, paid_at, paid_by) "
+                "VALUES (%s,'2099-01',%s,'Paid',%s,%s)",
+                (business_id, profile_url, now, username),
+            )
 
             cur.execute(
                 "UPDATE businesses SET business_name=%s WHERE business_id=%s RETURNING business_name",
