@@ -16,9 +16,8 @@ import utils
 import store
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
-BRAND_LOGO_PATH = ASSET_DIR / "streamoperiq-logo-primary-deep-indigo.png"
-BRAND_ICON_PATH = ASSET_DIR / "streamoperiq-app-icon.png"
-BRAND_FAVICON_PATH = ASSET_DIR / "streamoperiq-favicon.png"
+BRAND_ICON_PATH = ASSET_DIR / "streamoperiq-app-icon-transparent.png"
+BRAND_FAVICON_PATH = BRAND_ICON_PATH
 BRAND_TOKENS_CSS = (ASSET_DIR / "streamoperiq-tokens.css").read_text(encoding="utf-8")
 
 
@@ -26,7 +25,6 @@ def image_data_uri(path: Path) -> str:
     return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-BRAND_LOGO_URI = image_data_uri(BRAND_LOGO_PATH)
 BRAND_ICON_URI = image_data_uri(BRAND_ICON_PATH)
 
 SO_BRAND = "#211A4A"
@@ -358,8 +356,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-v
   background:radial-gradient(circle at 12% 12%,rgba(124,58,237,.10),transparent 30rem),
     linear-gradient(135deg,var(--so-background) 0%,var(--so-surface) 55%,#F0F5FF 100%);
 }
-.tango-login-brand{ color:var(--so-brand); margin-bottom:4.8rem; }
-.tango-login-brand img{ display:block; width:min(390px,85%); height:auto; object-fit:contain; }
+.tango-login-brand{ display:flex; align-items:center; gap:.8rem; color:var(--so-brand); margin-bottom:4.8rem; }
+.tango-login-brand img{ display:block; width:4.25rem; height:4.25rem; object-fit:contain; }
+.streamoperiq-wordmark{ font-size:2.25rem; line-height:1; font-weight:750; letter-spacing:-.055em; white-space:nowrap; }
+.streamoperiq-wordmark .gradient-letter{
+  color:transparent; background:var(--so-ai-gradient); background-clip:text; -webkit-background-clip:text;
+}
 .tango-login-eyebrow{ color:var(--so-violet); }
 .tango-login-hero h1,.tango-login-panel-head h2{ color:var(--so-brand); }
 .tango-login-hero p,.tango-login-panel-head p,.tango-login-foot{ color:var(--so-text-muted); }
@@ -412,6 +414,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-v
 .owner-sidebar-brand img{ width:2.15rem; height:2.15rem; border-radius:.65rem; object-fit:cover; }
 .owner-workspace-avatar{ color:var(--so-brand); background:#F1EDFF; }
 .owner-workspace-role,.sidebar-profile-role,.sidebar-group-head{ color:var(--so-text-muted); }
+.owner-workspace-business{ color:var(--so-text-muted); font-size:.72rem; margin-top:.12rem; }
 .stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button{ color:var(--so-text); }
 .stApp:has(.owner-sidebar-marker) section[data-testid="stSidebar"] .stButton>button:hover{
   color:var(--so-brand); background:#F5F2FF; border-color:#DDD4FE;
@@ -433,9 +436,44 @@ section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
 }
 
 @media (max-width:800px){
-  .tango-login-brand img{ width:min(300px,88%); }
+  .tango-login-brand img{ width:3.5rem; height:3.5rem; }
+  .streamoperiq-wordmark{ font-size:1.85rem; }
   .tango-login-brand{ margin-bottom:2rem; }
   .owner-sidebar-brand img{ width:1.9rem; height:1.9rem; }
+}
+
+/* Shared dashboard alignment and density */
+.stApp [data-testid="stMainBlockContainer"]{ max-width:1240px; padding-top:2.2rem; padding-bottom:3rem; }
+.overview-hero{ margin-bottom:1.15rem; align-items:flex-start; }
+.overview-section,.command-grid-title{ margin-top:1.35rem; margin-bottom:.7rem; }
+.stApp [data-testid="stHorizontalBlock"]{ align-items:stretch; gap:.85rem; }
+@media (min-width:901px){
+  .stApp [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]{ min-width:0; }
+}
+.stApp div[data-testid="stMetric"]{ height:100%; min-height:112px; padding:1rem 1.05rem; border-radius:var(--so-radius-card); }
+.stApp div[data-testid="stVerticalBlockBorderWrapper"]{ border-color:var(--so-border); border-radius:var(--so-radius-card); }
+.stApp [data-testid="stDataFrame"],.stApp [data-testid="stPlotlyChart"]{ width:100%; }
+.stApp [data-testid="stPlotlyChart"] > div{ width:100% !important; }
+.dashboard-section-nav{ margin:.2rem 0 .7rem; }
+.stApp div[data-testid="stSegmentedControl"]{ margin:.2rem 0 .9rem; }
+.stApp div[data-testid="stSegmentedControl"] [role="radiogroup"]{
+  width:100%; padding:.28rem; background:var(--so-surface); border:1px solid var(--so-border);
+  border-radius:.8rem; gap:.25rem;
+}
+.stApp div[data-testid="stSegmentedControl"] label{ flex:1; justify-content:center; min-height:2.55rem; }
+.stApp div[data-testid="stSegmentedControl"] label:has(input:checked){
+  color:var(--so-brand); background:#F1EDFF; border-radius:.6rem;
+}
+@media (max-width:900px){
+  .stApp [data-testid="stMainBlockContainer"]{ padding:1.25rem 1rem 2.5rem; }
+  .overview-hero{ gap:.8rem; }
+  .overview-period-pill{ display:none; }
+  .stApp [data-testid="stHorizontalBlock"]{ flex-wrap:wrap; }
+  .stApp [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]{
+    flex:1 1 100% !important; width:100% !important;
+  }
+  .stApp div[data-testid="stSegmentedControl"] [role="radiogroup"]{ overflow-x:auto; justify-content:flex-start; }
+  .stApp div[data-testid="stSegmentedControl"] label{ flex:0 0 auto; padding-inline:.75rem; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -584,7 +622,8 @@ if not was_authenticated:
         st.markdown(f"""
         <div class="tango-login-hero">
           <div class="tango-login-brand">
-            <img src="{BRAND_LOGO_URI}" alt="StreamOperiq">
+            <img src="{BRAND_ICON_URI}" alt="">
+            <div class="streamoperiq-wordmark"><span class="gradient-letter">S</span>treamOperi<span class="gradient-letter">q</span></div>
           </div>
           <div class="tango-login-eyebrow">Streaming Operations + Intelligence</div>
           <h1>Intelligence behind every creator operation.</h1>
@@ -721,6 +760,31 @@ def nav_button(label, page_key, icon=None):
         st.rerun()
 
 
+def dashboard_section_control(key, options):
+    """Render compact in-page navigation and hide non-selected dashboard panels."""
+    selected = st.segmented_control(
+        "Dashboard section", options, default=options[0], key=key,
+        label_visibility="collapsed", width="stretch",
+    )
+    selected = selected or options[0]
+    hidden_selectors = [
+        f".st-key-{key}_{option.lower().replace(' ', '_').replace('&', 'and')}"
+        for option in options if option != selected
+    ]
+    if hidden_selectors:
+        st.markdown(
+            f"<style>{','.join(hidden_selectors)}{{display:none !important;}}</style>",
+            unsafe_allow_html=True,
+        )
+    return selected
+
+
+def dashboard_panel(key, section):
+    """Create a keyed panel whose visibility is controlled by dashboard_section_control."""
+    normalized = section.lower().replace(" ", "_").replace("&", "and")
+    return st.container(key=f"{key}_{normalized}")
+
+
 def render_sidebar_brand():
     st.markdown(f"""
     <div class="owner-sidebar-brand">
@@ -740,7 +804,8 @@ with st.sidebar:
         <div class="owner-workspace">
           <div class="owner-workspace-avatar">{owner_initials}</div>
           <div class="owner-workspace-copy">
-            <div class="owner-workspace-name">{safe_business_name}</div>
+            <div class="owner-workspace-name">{safe_display_name}</div>
+            <div class="owner-workspace-business">{safe_business_name}</div>
             <div class="owner-workspace-role">Business Owner</div>
           </div>
         </div>
@@ -780,19 +845,8 @@ with st.sidebar:
             nav_button("User access", "UserAccess", ":material/manage_accounts:")
             nav_button("Data management", "DataManagement", ":material/database:")
 
-        with st.container(border=True):
-            st.markdown('<div class="sidebar-profile-marker"></div>', unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class="sidebar-profile">
-              <div class="owner-workspace-avatar">{owner_initials}</div>
-              <div class="sidebar-profile-copy">
-                <div class="sidebar-profile-name">{safe_display_name}</div>
-                <div class="sidebar-profile-role">{safe_business_name} · Owner</div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-            nav_button("My profile", "MyProfile", ":material/account_circle:")
-            authenticator.logout("Sign out", "sidebar")
+        nav_button("My profile", "MyProfile", ":material/account_circle:")
+        authenticator.logout("Sign out", "sidebar")
 
     elif is_sub_agency:
         st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
@@ -805,7 +859,8 @@ with st.sidebar:
         <div class="owner-workspace">
           <div class="owner-workspace-avatar">{sub_initials}</div>
           <div class="owner-workspace-copy">
-            <div class="owner-workspace-name">{safe_agency_name}</div>
+            <div class="owner-workspace-name">{safe_display_name}</div>
+            <div class="owner-workspace-business">{safe_agency_name}</div>
             <div class="owner-workspace-role">Sub-Agency · {safe_business_name}</div>
           </div>
         </div>
@@ -828,19 +883,8 @@ with st.sidebar:
             )
             nav_button("Upload monthly report", "UploadMonthly", ":material/upload_file:")
 
-        with st.container(border=True):
-            st.markdown('<div class="sidebar-profile-marker"></div>', unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class="sidebar-profile">
-              <div class="owner-workspace-avatar">{sub_initials}</div>
-              <div class="sidebar-profile-copy">
-                <div class="sidebar-profile-name">{safe_display_name}</div>
-                <div class="sidebar-profile-role">{safe_agency_name} · Sub-Agency</div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-            nav_button("My profile", "MyProfile", ":material/account_circle:")
-            authenticator.logout("Sign out", "sidebar")
+        nav_button("My profile", "MyProfile", ":material/account_circle:")
+        authenticator.logout("Sign out", "sidebar")
 
     else:
         render_sidebar_brand()
@@ -850,17 +894,21 @@ with st.sidebar:
         st.write("")
 
     if is_platform_admin:
+        admin_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "PA"
+        safe_admin_name = html.escape(str(display_name))
+        st.markdown(f"""
+        <div class="owner-workspace">
+          <div class="owner-workspace-avatar">{admin_initials}</div>
+          <div class="owner-workspace-copy">
+            <div class="owner-workspace-name">{safe_admin_name}</div>
+            <div class="owner-workspace-business">StreamOperiq</div>
+            <div class="owner-workspace-role">Platform Administrator</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
         nav_button("Platform overview", "Businesses", ":material/admin_panel_settings:")
         st.write("")
-        nav_button("My profile", "MyProfile")
-        if avatar_b64:
-            st.markdown(
-                f'<img src="data:image/png;base64,{avatar_b64}" '
-                f'style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-bottom:6px;">',
-                unsafe_allow_html=True,
-            )
-        st.caption(f"Signed in as **{display_name}**")
-        st.caption("Platform Administrator")
+        nav_button("My profile", "MyProfile", ":material/account_circle:")
         authenticator.logout("Sign out", "sidebar")
 
 # --------------------------------------------------------- shared loaders --
@@ -1305,6 +1353,7 @@ elif st.session_state.page == "Admin":
       <div class="overview-period-pill">Live operational overview</div>
     </div>
     """, unsafe_allow_html=True)
+    dashboard_section_control("my_dashboard", ["Overview", "Performance", "Financials", "Insights"])
 
     monthly_periods = store.list_periods("monthly", business_id)
     if not monthly_periods:
@@ -1367,6 +1416,8 @@ elif st.session_state.page == "Admin":
     earning_note, earning_direction = overview_delta("my_earnings_usd")
     days_note, days_direction = overview_delta("days_worked")
 
+    my_overview_panel = dashboard_panel("my_dashboard", "Overview")
+    my_overview_panel.__enter__()
     score_col, alert_col = st.columns(2)
     with score_col:
         st.markdown(f"""
@@ -1426,7 +1477,10 @@ elif st.session_state.page == "Admin":
         extended3.metric("Creator revenue", f"${float(df_current['usd_earned'].sum()):,.2f}",
                          "USD Earned from Tango report")
         extended4.metric("Streaming hours", f"{float(df_current['streaming_hours'].sum()):,.1f}")
+    my_overview_panel.__exit__(None, None, None)
 
+    my_financials_panel = dashboard_panel("my_dashboard", "Financials")
+    my_financials_panel.__enter__()
     if is_owner:
         direct_df = df_current_all[df_current_all["sub_agency"] == "Agency Direct"]
         partner_df = df_current_all[df_current_all["sub_agency"] != "Agency Direct"]
@@ -1485,7 +1539,16 @@ elif st.session_state.page == "Admin":
                 "Sub-Agency net deducts commission (redeemed diamonds ÷ 200 × saved rate) "
                 "from the Agency's My Earnings (USD)."
             )
+    elif is_sub_agency:
+        st.markdown("### Commission summary")
+        fc1, fc2, fc3 = st.columns(3)
+        fc1.metric("Redeemed value", f"${sub_gross_usd:,.2f}")
+        fc2.metric("Commission rate", "Not set" if sub_commission_pct is None else f"{sub_commission_pct:g}%")
+        fc3.metric("Commission earned", "Not set" if sub_commission_usd is None else f"${sub_commission_usd:,.2f}")
+    my_financials_panel.__exit__(None, None, None)
 
+    my_insights_panel = dashboard_panel("my_dashboard", "Insights")
+    my_insights_panel.__enter__()
     st.markdown("""
     <div class="overview-section">
       <h2>Automated insights</h2>
@@ -1577,7 +1640,10 @@ elif st.session_state.page == "Admin":
             st.dataframe(pd.DataFrame(follow_up_rows), hide_index=True, width="stretch")
     else:
         st.success("No urgent follow-up tasks for the selected reporting period.")
+    my_insights_panel.__exit__(None, None, None)
 
+    my_performance_panel = dashboard_panel("my_dashboard", "Performance")
+    my_performance_panel.__enter__()
     st.markdown("""
     <div class="command-grid-title"><div><h2>Target and financial outlook</h2>
     <p>Current progress against an 8% improvement target based on the previous reporting period.</p></div></div>
@@ -1754,6 +1820,7 @@ elif st.session_state.page == "Admin":
                 top5[cols], hide_index=True, width='stretch',
                 column_config=table_column_config(cols),
             )
+    my_performance_panel.__exit__(None, None, None)
 
 # ================================================================ STATISTICS
 elif st.session_state.page == "Statistics":
@@ -1766,6 +1833,7 @@ elif st.session_state.page == "Statistics":
     <h1>Broadcaster Dashboard</h1><p>Search, segment and compare every broadcaster in the Agency roster.</p>
     </div><div class="overview-period-pill">Broadcaster intelligence</div></div>
     """, unsafe_allow_html=True)
+    dashboard_section_control("broadcaster_dashboard", ["Overview", "Performance", "Retention", "Directory"])
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
@@ -1788,6 +1856,8 @@ elif st.session_state.page == "Statistics":
     avg_hours = float(analytics["streaming_hours"].mean()) if total else 0
     avg_creator_revenue = float(analytics["usd_earned"].mean()) if total else 0
 
+    broadcaster_overview_panel = dashboard_panel("broadcaster_dashboard", "Overview")
+    broadcaster_overview_panel.__enter__()
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total broadcasters", f"{total:,}")
     k2.metric("Active", f"{active:,}", f"{active / max(1, total) * 100:.1f}% of roster")
@@ -1798,8 +1868,26 @@ elif st.session_state.page == "Statistics":
     k6.metric("At risk", f"{len(at_risk_all):,}")
     k7.metric("Avg streaming hours", f"{avg_hours:,.1f}")
     k8.metric("Avg creator revenue", f"${avg_creator_revenue:,.2f}")
+    broadcaster_overview_panel.__exit__(None, None, None)
 
-    with st.expander("Search and filters", expanded=True, icon=":material/filter_alt:"):
+    broadcaster_retention_panel = dashboard_panel("broadcaster_dashboard", "Retention")
+    broadcaster_retention_panel.__enter__()
+    st.markdown("### Retention and broadcaster health")
+    retention_value = utils.retention_rate(df_all, df_prev_all) if not df_prev_all.empty else None
+    health_value = utils.broadcaster_health_score(df_all, df_prev_all)
+    rh1, rh2, rh3 = st.columns(3)
+    rh1.metric("Retention rate", f"{retention_value:.1f}%" if retention_value is not None else "First period")
+    rh2.metric("At-risk broadcasters", f"{len(at_risk_all):,}")
+    rh3.metric("Roster health", f"{health_value}/100")
+    if at_risk_all.empty:
+        st.success("No previously productive broadcasters have dropped to zero activity.")
+    else:
+        risk_cols = ["broadcaster_name", "sub_agency", "diamonds_redeemed", "streaming_days"]
+        st.dataframe(at_risk_all[risk_cols], hide_index=True, width="stretch",
+                     column_config=table_column_config(risk_cols))
+    broadcaster_retention_panel.__exit__(None, None, None)
+
+    with st.expander("Search and filters", expanded=False, icon=":material/filter_alt:"):
         f1, f2, f3 = st.columns([1.4, 1, 1])
         search = f1.text_input("Search broadcaster", placeholder="Name or profile URL", key="bd_search")
         source_options = ["All", "Agency Direct"] + load_agencies(business_id)
@@ -1828,6 +1916,8 @@ elif st.session_state.page == "Statistics":
         view = view[~view["is_new"]]
     view = view[(view["streaming_hours"] >= min_hours) & (view["usd_earned"] >= min_revenue)]
 
+    broadcaster_performance_panel = dashboard_panel("broadcaster_dashboard", "Performance")
+    broadcaster_performance_panel.__enter__()
     chart_left, chart_right = st.columns(2)
     with chart_left:
         top_revenue = view.nlargest(10, "usd_earned").sort_values("usd_earned")
@@ -1874,7 +1964,7 @@ elif st.session_state.page == "Statistics":
     relationship_fig = go.Figure(go.Scatter(
         x=view["streaming_hours"], y=view["usd_earned"], mode="markers",
         text=view["broadcaster_name"], marker=dict(size=10, color=view["diamonds_redeemed"],
-                                                   colorscale="Greens", showscale=True,
+                                                   colorscale=[[0, SO_PERIWINKLE], [1, SO_CYAN]], showscale=True,
                                                    colorbar=dict(title="Diamonds")),
         hovertemplate="%{text}<br>%{x:.1f} hours<br>$%{y:,.2f}<extra></extra>",
     ))
@@ -1886,7 +1976,10 @@ elif st.session_state.page == "Statistics":
     with relationship_right:
         with st.container(border=True):
             st.plotly_chart(relationship_fig, use_container_width=True, config={"displayModeBar": False})
+    broadcaster_performance_panel.__exit__(None, None, None)
 
+    broadcaster_directory_panel = dashboard_panel("broadcaster_dashboard", "Directory")
+    broadcaster_directory_panel.__enter__()
     st.markdown(f"### Broadcaster report · {len(view):,} result(s)")
     show_cols = ["broadcaster_name", "profile_url", "sub_agency", "status", "is_new",
                  "streaming_days", "streaming_hours", "diamonds_earned", "diamonds_redeemed",
@@ -1897,6 +1990,7 @@ elif st.session_state.page == "Statistics":
         "Download broadcaster report", utils.safe_csv_bytes(view[show_cols]),
         file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
     )
+    broadcaster_directory_panel.__exit__(None, None, None)
 
 # =============================================================== BROADCASTERS
 elif st.session_state.page == "Broadcasters":
@@ -2043,6 +2137,7 @@ elif st.session_state.page == "SubAgencies":
     <h1>Recruiter Dashboard</h1><p>Compare recruiter contribution, activity, retention, commission and net Agency value.</p>
     </div><div class="overview-period-pill">Recruiter performance</div></div>
     """, unsafe_allow_html=True)
+    dashboard_section_control("recruiter_dashboard", ["Overview", "Performance", "Commission", "Roster"])
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
@@ -2085,6 +2180,8 @@ elif st.session_state.page == "SubAgencies":
 
     recruiter_summary = summary[summary["agency"] != "Agency Direct"].copy()
     total_commission = float(recruiter_summary["commission_due"].fillna(0).sum()) if not recruiter_summary.empty else 0
+    recruiter_overview_panel = dashboard_panel("recruiter_dashboard", "Overview")
+    recruiter_overview_panel.__enter__()
     rk1, rk2, rk3, rk4 = st.columns(4)
     rk1.metric("Total recruiters", f"{len(agencies):,}")
     rk2.metric("Recruiter-hired broadcasters", f"{int(recruiter_summary['broadcasters'].sum()):,}")
@@ -2097,7 +2194,10 @@ elif st.session_state.page == "SubAgencies":
     best_recruiter = (recruiter_summary.sort_values("net_revenue", ascending=False).iloc[0]["agency"]
                       if not recruiter_summary.empty else "—")
     rk8.metric("Top recruiter", best_recruiter)
+    recruiter_overview_panel.__exit__(None, None, None)
 
+    recruiter_performance_panel = dashboard_panel("recruiter_dashboard", "Performance")
+    recruiter_performance_panel.__enter__()
     if not recruiter_summary.empty:
         rc1, rc2 = st.columns(2)
         revenue_compare = recruiter_summary.sort_values("net_revenue")
@@ -2127,7 +2227,12 @@ elif st.session_state.page == "SubAgencies":
         with rc2:
             with st.container(border=True):
                 st.plotly_chart(retention_fig, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.info("Create and assign a Sub-Agency to unlock recruiter performance comparisons.")
+    recruiter_performance_panel.__exit__(None, None, None)
 
+    recruiter_commission_panel = dashboard_panel("recruiter_dashboard", "Commission")
+    recruiter_commission_panel.__enter__()
     sort_choice = st.selectbox(
         "Sort by", ["Net revenue", "Diamonds", "Retention", "Growth", "Active broadcasters", "Days streamed", "Broadcaster count"], key="sa_sort"
     )
@@ -2191,6 +2296,9 @@ elif st.session_state.page == "SubAgencies":
                         st.toast(f"Commission updated to {new_rate:g}%.", icon="\u2705")
                         st.rerun()
 
+    recruiter_commission_panel.__exit__(None, None, None)
+    recruiter_roster_panel = dashboard_panel("recruiter_dashboard", "Roster")
+    recruiter_roster_panel.__enter__()
     if agencies:
         st.markdown("### Recruiter detail")
         selected_recruiter = st.selectbox("Select recruiter", agencies, key="recruiter_detail")
@@ -2260,6 +2368,9 @@ elif st.session_state.page == "SubAgencies":
             "Download recruiter statement", utils.safe_csv_bytes(statement),
             file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.csv", mime="text/csv",
         )
+    else:
+        st.info("No Sub-Agency roster is available yet.")
+    recruiter_roster_panel.__exit__(None, None, None)
 
 # ================================================================== ASSIGN
 elif st.session_state.page == "Assign":
