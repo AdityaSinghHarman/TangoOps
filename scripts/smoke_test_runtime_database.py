@@ -43,6 +43,11 @@ def main():
                 (username, marker, "transaction-only-test", business_id),
             )
             cur.execute(
+                "INSERT INTO memberships (business_id, username, role, sub_agency, status) "
+                "VALUES (%s,%s,'owner',NULL,'Active')",
+                (business_id, username),
+            )
+            cur.execute(
                 "INSERT INTO agencies (business_id, agency_name, commission_pct) VALUES (%s,%s,5)",
                 (business_id, marker),
             )

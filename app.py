@@ -711,6 +711,11 @@ def load_businesses_df():
     return store.get_businesses()
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_all_memberships_df():
+    return store.get_all_memberships()
+
+
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
@@ -832,9 +837,41 @@ avatar_b64 = _profile.get("avatar_base64") if _profile else None
 
 
 def current_user_context():
-    """Returns (role, business_id, sub_agency)."""
+    """Returns (role, business_id, sub_agency).
+
+    Resolves through `memberships` first — the authoritative source added so
+    a login is no longer hardwired to a single business_id/role pair on its
+    `users` row (SaaS Phase 2). Falls back to reading `users` directly only
+    when this login has zero active membership rows, which should only be
+    possible for an account that predates scripts/backfill_memberships.py
+    having been run; it is a zero-downtime safety net for that deploy
+    ordering, not a normal or permanent path.
+    """
     if username == bootstrap_username:
         return "platform_admin", None, None
+
+    businesses_df = load_businesses_df()
+    active_business_ids = set(
+        businesses_df[businesses_df["status"] == "Active"]["business_id"]
+    ) if not businesses_df.empty else set()
+
+    memberships_df = load_all_memberships_df()
+    if not memberships_df.empty:
+        normalized_member_usernames = memberships_df["username"].astype(str).str.strip().str.lower()
+        member_rows = memberships_df[
+            (normalized_member_usernames == username)
+            & (memberships_df["status"] == "Active")
+            & (memberships_df["business_id"].isin(active_business_ids))
+        ]
+        if not member_rows.empty:
+            # A login holds exactly one active membership today; switching
+            # between multiple is future scope (not built), so the most
+            # recently created row is simply the default.
+            r = member_rows.sort_values("created_at", ascending=False).iloc[0]
+            if r["role"] not in ("owner", "sub_agency"):
+                return None, None, None
+            return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
+
     users_df = load_all_users_df()
     if users_df.empty:
         return None, None, None
@@ -845,11 +882,7 @@ def current_user_context():
     r = row.iloc[0]
     if r["role"] not in ("owner", "sub_agency") or r["status"] != "Active":
         return None, None, None
-    businesses_df = load_businesses_df()
-    active_business = businesses_df[
-        (businesses_df["business_id"] == r["business_id"]) & (businesses_df["status"] == "Active")
-    ] if not businesses_df.empty else pd.DataFrame()
-    if active_business.empty:
+    if r["business_id"] not in active_business_ids:
         return None, None, None
     return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
 

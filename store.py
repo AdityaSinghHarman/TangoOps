@@ -7,6 +7,10 @@ other business sharing this same app.
 Tables (created through the administrator-only migration command):
   businesses        one row per top-level business (ABC, DEF, ...)
   users             every login on the platform, tagged with role + business_id
+  memberships       one row per (business_id, username) a login belongs to;
+                     the authoritative source for role/business resolution at
+                     login, added so identity is no longer hardwired to a
+                     single business_id/role pair on the users row itself
   agencies          sub-agency names, per business
   raw_uploads       every uploaded period's broadcaster stats, per business
   assignments       permanent profile_url -> sub_agency mapping, per business
@@ -30,6 +34,9 @@ CREATE TABLE IF NOT EXISTS businesses (
     created_at TIMESTAMP DEFAULT now()
 );
 
+ALTER TABLE businesses
+    ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
     name TEXT,
@@ -40,6 +47,25 @@ CREATE TABLE IF NOT EXISTS users (
     status TEXT DEFAULT 'Active',
     created_at TIMESTAMP DEFAULT now()
 );
+
+-- One row per (business_id, username) a login belongs to. A user still has
+-- exactly one row today (backfilled 1:1 from users.business_id/role by
+-- scripts/backfill_memberships.py), but identity is no longer hardwired to a
+-- single business_id/role pair on the users row itself: this is what makes a
+-- future login-in-two-tenants case (e.g. platform support staff) a data change
+-- rather than a schema change.
+CREATE TABLE IF NOT EXISTS memberships (
+    business_id TEXT NOT NULL REFERENCES businesses(business_id),
+    username TEXT NOT NULL REFERENCES users(username),
+    role TEXT NOT NULL,
+    sub_agency TEXT,
+    status TEXT DEFAULT 'Active',
+    invited_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (business_id, username)
+);
+CREATE INDEX IF NOT EXISTS idx_memberships_username
+    ON memberships (username, status);
 
 CREATE TABLE IF NOT EXISTS agencies (
     business_id TEXT,
@@ -179,7 +205,7 @@ DO $$
 DECLARE table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'businesses', 'users', 'agencies', 'raw_uploads', 'assignments',
+        'businesses', 'users', 'memberships', 'agencies', 'raw_uploads', 'assignments',
         'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
@@ -195,7 +221,7 @@ END $$;
 """
 
 RUNTIME_TABLES = (
-    "businesses", "users", "agencies", "raw_uploads", "assignments",
+    "businesses", "users", "memberships", "agencies", "raw_uploads", "assignments",
     "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )
@@ -342,6 +368,14 @@ def update_business_name(business_id: str, new_name: str):
     _execute("UPDATE businesses SET business_name=%s WHERE business_id=%s", (new_name, business_id))
 
 
+def set_business_demo_flag(business_id: str, is_demo: bool):
+    """Mark a business as demo/dummy data, excluding it from future billing
+    and lifecycle enforcement (SaaS blueprint Sections 06/07). Used once by
+    scripts/backfill_memberships.py for businesses that predate the SaaS
+    launch; not exposed in the UI yet."""
+    _execute("UPDATE businesses SET is_demo=%s WHERE business_id=%s", (bool(is_demo), business_id))
+
+
 # ---------------- users (global table, business_id-tagged) ----------------
 
 def _normalize_username(username: str) -> str:
@@ -386,7 +420,8 @@ def username_taken(username: str) -> bool:
 
 
 def create_user(username: str, name: str, password_plain: str, role: str,
-                 business_id: str, sub_agency: str = "", status: str = "Active") -> tuple:
+                 business_id: str, sub_agency: str = "", status: str = "Active",
+                 invited_by: str = "") -> tuple:
     import streamlit_authenticator as stauth
     username = _normalize_username(username)
     policy_error = password_policy_error(password_plain)
@@ -395,16 +430,58 @@ def create_user(username: str, name: str, password_plain: str, role: str,
     if username_taken(username):
         return False, f"'{username}' is already registered on this platform."
     password_hash = stauth.Hasher().hash(password_plain)
-    _execute(
-        "INSERT INTO users (username, name, password_hash, role, business_id, sub_agency, status) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (username, name, password_hash, role, business_id, sub_agency, status),
-    )
+    # Written atomically with its membership row so users and memberships can
+    # never drift apart for a login created after this change.
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (username, name, password_hash, role, business_id, sub_agency, status) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (username, name, password_hash, role, business_id, sub_agency, status),
+            )
+            cur.execute(
+                "INSERT INTO memberships (business_id, username, role, sub_agency, status, invited_by) "
+                "VALUES (%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (business_id, username) DO UPDATE SET "
+                "role=EXCLUDED.role, sub_agency=EXCLUDED.sub_agency, status=EXCLUDED.status",
+                (business_id, username, role, sub_agency, status, _normalize_username(invited_by)),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        p.putconn(conn)
     return True, f"Created login for {username}."
 
 
 def set_user_status(username: str, status: str):
-    _execute("UPDATE users SET status=%s WHERE lower(trim(username))=%s", (status, _normalize_username(username)))
+    """Suspend/reactivate a login. Updates every membership row for this
+    username in the same transaction, so a suspended account can never keep
+    signing in through a stale 'Active' membership row (Section 10 of the
+    SaaS blueprint: this check must hold even if a future code path reads
+    membership status without re-checking users.status)."""
+    normalized = _normalize_username(username)
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET status=%s WHERE lower(trim(username))=%s",
+                (status, normalized),
+            )
+            cur.execute(
+                "UPDATE memberships SET status=%s WHERE lower(trim(username))=%s",
+                (status, normalized),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        p.putconn(conn)
 
 
 def reset_user_password(username: str, new_password_plain: str):
@@ -415,6 +492,41 @@ def reset_user_password(username: str, new_password_plain: str):
     _execute("UPDATE users SET password_hash=%s WHERE lower(trim(username))=%s",
               (stauth.Hasher().hash(new_password_plain), _normalize_username(username)))
     return True, "Password updated."
+
+
+# ---------------- memberships ----------------
+
+def get_memberships(username: str) -> pd.DataFrame:
+    """Every business this login belongs to. Today a login has exactly one
+    active row; ordering by created_at desc anticipates a future login
+    holding more than one without changing behavior for anyone who doesn't."""
+    return _query(
+        "SELECT business_id, role, sub_agency, status, created_at FROM memberships "
+        "WHERE lower(trim(username))=%s ORDER BY created_at DESC",
+        (_normalize_username(username),),
+    )
+
+
+def get_all_memberships() -> pd.DataFrame:
+    return _query(
+        "SELECT business_id, username, role, sub_agency, status, invited_by, created_at "
+        "FROM memberships ORDER BY created_at"
+    )
+
+
+def get_business_memberships(business_id: str) -> pd.DataFrame:
+    return _query(
+        "SELECT username, role, sub_agency, status, invited_by, created_at FROM memberships "
+        "WHERE business_id=%s ORDER BY created_at",
+        (business_id,),
+    )
+
+
+def set_membership_status(business_id: str, username: str, status: str):
+    _execute(
+        "UPDATE memberships SET status=%s WHERE business_id=%s AND lower(trim(username))=%s",
+        (status, business_id, _normalize_username(username)),
+    )
 
 
 def log_security_event(event_type: str, actor_username: str = "", actor_role: str = "",
