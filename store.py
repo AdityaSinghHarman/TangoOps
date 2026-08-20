@@ -70,6 +70,26 @@ CREATE TABLE IF NOT EXISTS memberships (
 CREATE INDEX IF NOT EXISTS idx_memberships_username
     ON memberships (username, status);
 
+-- NULL for every normal role — permanent until someone suspends it. Set to a
+-- real timestamp only for a time-boxed grant (the Trial Viewer role, Section
+-- 15 of the SaaS blueprint): a demo/trial login that's meant to lapse on its
+-- own rather than rely on someone remembering to revoke it. Enforcing the
+-- expiry at login time is Phase 3 work — this column just gives it somewhere
+-- to read from.
+ALTER TABLE memberships
+    ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'memberships_expires_at_after_created'
+    ) THEN
+        ALTER TABLE memberships
+            ADD CONSTRAINT memberships_expires_at_after_created
+            CHECK (expires_at IS NULL OR expires_at > created_at);
+    END IF;
+END $$;
+
 -- One row per business: its current subscription state. Added early (ahead of
 -- the full Phase 4/6 plans/entitlements/billing build) specifically to carry
 -- a one-time annual purchase: auto_renew defaults false because there is no
