@@ -1009,10 +1009,11 @@ if st.session_state.page == "Businesses":
         database_posture[key]
         for key in ("superuser", "create_database", "create_role", "replication", "bypass_rls")
     )
-    database_security_label = (
-        "● Restricted database access" if database_is_restricted
-        else "● Elevated database access"
-    )
+    if not database_is_restricted:
+        # Fail closed without exposing role names, privileges, or other
+        # infrastructure details in the browser.
+        st.error("The platform security configuration requires administrator attention.")
+        st.stop()
     st.markdown(f"""
     <div class="admin-hero">
       <div>
@@ -1020,28 +1021,8 @@ if st.session_state.page == "Businesses":
         <h1>Platform overview</h1>
         <p>Monitor platform health and manage isolated agency accounts, owners, and access.</p>
       </div>
-      <div class="admin-secure-pill">{database_security_label}</div>
     </div>
     """, unsafe_allow_html=True)
-
-    if database_is_restricted:
-        st.success("Database security: Restricted runtime access is active. Administrator privileges are disabled.")
-    else:
-        st.warning("Database security: The application connection still has elevated database privileges.")
-    elevated_database_flags = [
-        label for key, label in (
-            ("superuser", "superuser"),
-            ("create_database", "create database"),
-            ("create_role", "create role"),
-            ("replication", "replication"),
-            ("bypass_rls", "bypass RLS"),
-        ) if database_posture[key]
-    ]
-    st.caption(
-        f"Connected database role: {database_posture['role']} · "
-        f"Elevated flags: {', '.join(elevated_database_flags) if elevated_database_flags else 'none'}"
-    )
-    st.caption("Security release: restricted-db-v1")
 
     businesses = store.get_businesses()
     all_users = load_all_users_df()
