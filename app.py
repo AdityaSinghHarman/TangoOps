@@ -972,7 +972,11 @@ with st.sidebar:
             nav_button("My Dashboard", "Admin", ":material/dashboard:")
             nav_button("Broadcaster Dashboard", "Statistics", ":material/monitoring:")
             nav_button("Recruiter Dashboard", "SubAgencies", ":material/hub:")
-            nav_button("Payout Dashboard", "Payouts", ":material/account_balance_wallet:")
+
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-group-head"><span>Rewards</span></div>', unsafe_allow_html=True)
+            nav_button("Broadcaster Rewards", "Payouts", ":material/redeem:")
 
         with st.container(border=True):
             st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
@@ -2168,12 +2172,12 @@ elif st.session_state.page == "Payouts":
 
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     st.markdown("""
-    <div class="overview-hero"><div><div class="overview-eyebrow">Payout operations</div>
-    <h1>Broadcaster Payouts</h1><p>Set broadcaster payout rates and calculate monthly amounts from approved reports.</p>
-    </div><div class="overview-period-pill">Monthly payout control</div></div>
+    <div class="overview-hero"><div><div class="overview-eyebrow">Broadcaster rewards</div>
+    <h1>Broadcaster Rewards</h1><p>Manage monthly broadcaster rewards and calculate amounts from approved reports.</p>
+    </div><div class="overview-period-pill">Monthly reward control</div></div>
     """, unsafe_allow_html=True)
     dashboard_section_control(
-        "payout_dashboard", ["Monthly Summary", "Payout Rules", "Statements", "History"]
+        "payout_dashboard", ["Monthly Summary", "Reward Rules", "Statements", "History"]
     )
 
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
@@ -2246,7 +2250,7 @@ elif st.session_state.page == "Payouts":
     with pk1:
         payout_kpi_card("Redeemed Value", f"${total_redeemed:,.2f}", "diamond", f"{current_period} approved report")
     with pk2:
-        payout_kpi_card("Broadcaster Payouts", f"${total_payout:,.2f}", "wallet", "Calculated from saved rates")
+        payout_kpi_card("Broadcaster Rewards", f"${total_payout:,.2f}", "wallet", "Calculated from saved rates")
     with pk3:
         payout_kpi_card("Net Agency Earnings", f"${total_net:,.2f}", "chart", "After broadcaster payouts")
     with pk4:
@@ -2265,8 +2269,8 @@ elif st.session_state.page == "Payouts":
 
     table_col, rule_col = st.columns([2.6, 1], gap="large")
     with table_col:
-        st.markdown('<div class="payout-section-head"><h2>Monthly Payout Register</h2>'
-                    '<p>Review calculated payouts, select pending rows, and record completed payments.</p></div>',
+        st.markdown('<div class="payout-section-head"><h2>Monthly Reward Register</h2>'
+                    '<p>Review calculated rewards, select pending rows, and record completed payments.</p></div>',
                     unsafe_allow_html=True)
         pf1, pf2 = st.columns([1.5, 1])
         payout_search = pf1.text_input(
@@ -2342,7 +2346,7 @@ elif st.session_state.page == "Payouts":
 
     with rule_col:
         with st.container(border=True):
-            st.markdown("### Set Broadcaster Payout")
+            st.markdown("### Set Broadcaster Reward")
             st.caption("Rates apply from the selected month onward. Earlier statements stay unchanged.")
             roster = (
                 load_all_raw(business_id)
@@ -2396,7 +2400,7 @@ elif st.session_state.page == "Payouts":
                 f"Net Agency earnings: **${preview_agency - preview_payout:,.2f}**"
             )
             if st.button(
-                "Save Payout Rule", type="primary", width="stretch",
+                "Save Reward Rule", type="primary", width="stretch",
                 icon=":material/save:", key="save_payout_rule",
                 disabled=payout_rate > agency_rate,
             ):
@@ -2417,14 +2421,14 @@ elif st.session_state.page == "Payouts":
                     st.error(str(error))
     payout_summary_panel.__exit__(None, None, None)
 
-    payout_rules_panel = dashboard_panel("payout_dashboard", "Payout Rules")
+    payout_rules_panel = dashboard_panel("payout_dashboard", "Reward Rules")
     payout_rules_panel.__enter__()
-    st.markdown('<div class="payout-section-head"><h2>Effective-Dated Payout Rules</h2>'
+    st.markdown('<div class="payout-section-head"><h2>Effective-Dated Reward Rules</h2>'
                 '<p>Each change starts in its effective month and preserves all earlier calculations.</p></div>',
                 unsafe_allow_html=True)
     all_rules = load_payout_rules(business_id)
     if all_rules.empty:
-        st.info("No payout rules have been saved yet. Add the first rule from Monthly Summary.")
+        st.info("No reward rules have been saved yet. Add the first rule from Monthly Summary.")
     else:
         rule_view = all_rules.rename(columns={
             "broadcaster_name": "Broadcaster", "effective_from": "Effective From",
@@ -2474,7 +2478,7 @@ elif st.session_state.page == "Payouts":
 
     payout_history_panel = dashboard_panel("payout_dashboard", "History")
     payout_history_panel.__enter__()
-    st.markdown('<div class="payout-section-head"><h2>Payout Activity History</h2>'
+    st.markdown('<div class="payout-section-head"><h2>Reward Activity History</h2>'
                 '<p>Rate changes and payment confirmations recorded for this agency.</p></div>',
                 unsafe_allow_html=True)
     payout_audit = store.get_security_audit(business_id, limit=500)
@@ -2488,7 +2492,7 @@ elif st.session_state.page == "Payouts":
             "target_type": "Record Type", "target_id": "Record", "details": "Details",
         })
         history_view["Action"] = history_view["Action"].map({
-            "payout_rule_saved": "Payout rule saved", "payout_marked_paid": "Payout marked paid",
+            "payout_rule_saved": "Reward rule saved", "payout_marked_paid": "Reward marked paid",
         })
         st.dataframe(
             history_view[["Date", "User", "Action", "Record Type", "Record", "Details"]],
