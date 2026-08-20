@@ -342,6 +342,23 @@ h1, h2, h3 { letter-spacing:-0.02em; }
   color:white !important; background:var(--so-violet) !important;
   border-color:var(--so-violet) !important;
 }
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stBaseButton-primary"]:not(:disabled) :is(p,span),
+.stApp [data-testid="stMainBlockContainer"] .stButton>button[kind="primary"]:not(:disabled) :is(p,span),
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stFormSubmitButton"] button:not(:disabled) :is(p,span){
+  color:#FFFFFF !important;
+}
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stBaseButton-primary"]:disabled,
+.stApp [data-testid="stMainBlockContainer"] .stButton>button[kind="primary"]:disabled,
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stFormSubmitButton"] button:disabled{
+  color:#7E7898 !important; background:#E9E7F3 !important;
+  border-color:#D9D5E8 !important; opacity:1 !important;
+  box-shadow:none !important; cursor:not-allowed !important;
+}
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stBaseButton-primary"]:disabled :is(p,span),
+.stApp [data-testid="stMainBlockContainer"] .stButton>button[kind="primary"]:disabled :is(p,span),
+.stApp [data-testid="stMainBlockContainer"] [data-testid="stFormSubmitButton"] button:disabled :is(p,span){
+  color:#7E7898 !important;
+}
 .stApp div[data-baseweb="input"],.stApp div[data-baseweb="select"]>div,
 .stApp textarea{ background:var(--so-surface); border-color:var(--so-border); }
 .stApp div[data-baseweb="input"]:focus-within,
