@@ -890,4 +890,17 @@ SubAgencies, or Payouts — page-level redirect blocks all of them.
 test `sub_agency` login to `auditor` via SQL, log in, walk through
 "Expected result" above, then revert.
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed, pushed to dev (`de5e543`).
+
+---
+
+## 2026-08-22 — Auditor slice fully verified in dev
+
+**Confirmed by the user:** "tested all running as expected" — sidebar
+shows exactly the right page set (including the new Audit Log link), full
+tenant view on the visible pages, Audit Log page loads correctly, and no
+access to Assign/Upload/User Access/CreateAgency/DataManagement/
+SubAgencies/Payouts.
+
+**Status: Auditor slice of Phase 3b — done, verified in dev.** Ready for
+prod, same as Agency Manager's rollout.
