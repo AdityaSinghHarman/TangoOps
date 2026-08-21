@@ -904,3 +904,20 @@ SubAgencies/Payouts.
 
 **Status: Auditor slice of Phase 3b — done, verified in dev.** Ready for
 prod, same as Agency Manager's rollout.
+
+---
+
+## 2026-08-22 — Auditor slice: pushed to prod, fully verified there too
+
+**What happened:** Code pushed to `main` (no schema change needed), app
+rebooted. User confirmed all 3 prod businesses are test tenants, ran the
+same promote → verify → revert cycle directly on prod.
+
+**Actual result:** Confirmed by the user — "tested all running as
+expected."
+
+**Status: Auditor slice of Phase 3b — done. Live and verified on both dev
+and prod.** `main` and `dev` both at commit `a2ca33a`. Remaining Phase 3b
+work: Trial Viewer's `expires_at` enforcement (next), then Broadcaster
+(biggest lift — needs actual broadcaster login accounts, which don't
+exist at all today).
