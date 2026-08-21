@@ -1601,4 +1601,9 @@ block message appears on the one that would exceed it, and that
 everything under the limit still works.
 
 **Status:** Implemented, compiled, self-reviewed, counting logic tested
-directly against synthetic data. Not yet pushed to dev.
+directly against synthetic data. Pushed to `dev` at commit `2e3445f`.
+Tested on dev by the user 2026-08-22: confirmed the block at the
+`recruiter_logins`/`internal_user_limit` ceiling with the expected error
+message, confirmed under-limit creates still work normally, and confirmed
+unlimited behavior on Network. Result: **tested as expected.** Not yet
+pushed to prod.
