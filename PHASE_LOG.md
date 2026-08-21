@@ -1605,5 +1605,7 @@ directly against synthetic data. Pushed to `dev` at commit `2e3445f`.
 Tested on dev by the user 2026-08-22: confirmed the block at the
 `recruiter_logins`/`internal_user_limit` ceiling with the expected error
 message, confirmed under-limit creates still work normally, and confirmed
-unlimited behavior on Network. Result: **tested as expected.** Not yet
-pushed to prod.
+unlimited behavior on Network. Result: **tested as expected.** Pushed to
+`main` at commit `a21d519` (fast-forward from `e6b578e`), tested on prod
+2026-08-22: **tested as expected.** **Live and verified on both dev and
+prod.**
