@@ -1279,6 +1279,40 @@ def load_business_users(biz_id):
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def load_business_memberships(biz_id):
+    return store.get_business_memberships(biz_id)
+
+
+INTERNAL_USER_ROLES = ("owner", "agency_manager", "auditor", "trial_viewer")
+
+
+def check_membership_limit(business_id, new_role):
+    """Phase 5, first slice: internal_user_limit and recruiter_logins are
+    hard caps - a new membership is blocked outright if it would exceed
+    the tenant's plan limit (Section 15), unlike broadcaster_limit which
+    stays a soft, overage-priced cap (Section 04/08) not enforced here -
+    see PHASE_LOG.md for the reasoning). Returns an error message string
+    if blocked, None if the invite is allowed."""
+    if new_role == "sub_agency":
+        feature_key, counted_roles, label = "recruiter_logins", ("sub_agency",), "recruiter login"
+    else:
+        feature_key, counted_roles, label = "internal_user_limit", INTERNAL_USER_ROLES, "internal user"
+    limit = store.has_feature(business_id, feature_key)
+    if limit in (None, -1):
+        return None
+    memberships_df = load_business_memberships(business_id)
+    current = int((
+        memberships_df["role"].isin(counted_roles) & (memberships_df["status"] == "Active")
+    ).sum())
+    if current >= limit:
+        return (
+            f"This plan allows {limit} {label}{'s' if limit != 1 else ''} - you already have "
+            f"{current}. Upgrade the plan or free up a seat before adding another."
+        )
+    return None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def load_payout_rules(biz_id):
     return store.get_payout_rules(biz_id)
 
@@ -3452,6 +3486,7 @@ elif st.session_state.page == "UserAccess":
         new_password = st.text_input("Password", type="password", key="ua_password")
 
     if st.button("Create User", type="primary"):
+        limit_error = check_membership_limit(business_id, new_role)
         if not is_valid_email(new_email):
             st.error("Enter a valid email address.")
         elif is_bootstrap_identity(new_email):
@@ -3460,6 +3495,8 @@ elif st.session_state.page == "UserAccess":
             st.error("Password is required.")
         elif new_role == "sub_agency" and not new_agency:
             st.error("Create a Sub-Agency first, then assign this login to it.")
+        elif limit_error:
+            st.error(limit_error)
         else:
             ok, msg = store.create_user(
                 new_email.strip(), new_name.strip() or new_email.strip(),

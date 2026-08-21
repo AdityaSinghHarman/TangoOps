@@ -1515,3 +1515,90 @@ assignment, downloaded PDFs opened correctly). Result: **tested as
 expected.** Pushed to `main` at commit `cae266a` (fast-forward from
 `6d2e2dd`), tested on prod 2026-08-22: **tested as expected.** **Live and
 verified on both dev and prod.**
+
+---
+
+## Phase 5, first slice: internal_user_limit and recruiter_logins as hard caps at invite time
+
+**Found and resolved a real inconsistency in the blueprint before starting.**
+Section 04/08 (the later, updated overage-pricing section) says
+`broadcaster_limit`, `recruiter_logins`, and `agency_workspaces` are all
+**soft caps** - crossing them never blocks, it gets priced as overage
+once Phase 6 (billing) exists. But Section 15 (the user/broadcaster
+lifecycle narrative) contradicts this for `recruiter_logins`, saying
+invites are "blocked outright" if they'd exceed `internal_user_limit` OR
+`recruiter_logins`. That line predates the later overage-pricing
+revision and was never updated to match.
+
+**Decision (user, 2026-08-22): `recruiter_logins` stays a hard cap for
+now**, matching Section 15, not Section 04/08. Reasoning: Phase 6's
+billing/overage infrastructure doesn't exist yet, so treating it as a
+soft cap today would mean unlimited free recruiter seats indefinitely
+with no mechanism to ever charge for the overage - a hard block is the
+only way to actually protect revenue until overage billing is built.
+`broadcaster_limit` was **not** part of this slice - it stays a true soft
+cap (no blocking behavior implemented here at all), consistent with
+Section 04/08, since the CSV upload path (where broadcaster counts grow)
+was never a block-on-limit design to begin with.
+
+**No schema change** - `has_feature()` already existed from 4a, and
+`memberships` already existed from Phase 2. Pure `app.py` work.
+
+**What was done:**
+- `load_business_memberships(business_id)` (cached ttl=30) - thin wrapper
+  over the existing `store.get_business_memberships()`.
+- `check_membership_limit(business_id, new_role)` - resolves the correct
+  feature key (`recruiter_logins` for a `sub_agency` invite,
+  `internal_user_limit` for anything else - owner/agency_manager, and
+  also counts pre-existing SQL-granted auditor/trial_viewer rows even
+  though there's no UI invite path for those roles yet), counts *Active*
+  memberships matching those roles for the tenant, and returns a clear
+  error message if the new invite would meet or exceed the plan's limit.
+  `-1` (Network's unlimited internal-user sentinel) and `None` (feature
+  key genuinely absent - shouldn't happen given seed data, treated as
+  "don't block" rather than a false restriction) both mean unlimited.
+- Wired into the **single enforcement point**: the "Create User" button
+  handler on the UserAccess page (the only place a `memberships` row gets
+  created via the UI today - Auditor/Trial Viewer are still SQL-only
+  grants, unaffected by this check since they don't go through this
+  form). Added as one more `elif` alongside the existing email/password/
+  sub-agency validations, blocking before `store.create_user()` runs.
+- Verified the counting logic directly (not just via the app): a
+  synthetic memberships DataFrame with mixed roles and one Disabled row
+  confirmed Active-only counting, correct role-set matching for both
+  `internal_user_limit` and `recruiter_logins`, and a correctly-columned
+  empty-DataFrame edge case (a tenant with zero additional memberships
+  rows besides the owner).
+
+**Expected result:**
+1. A tenant at their plan's `internal_user_limit` or `recruiter_logins`
+   ceiling sees a specific "This plan allows N ... you already have N"
+   error when trying to create one more of that kind, and the invite is
+   not created.
+2. A tenant under their limit, or on Network (`internal_user_limit = -1`
+   = unlimited), can create users normally with no behavior change.
+3. `broadcaster_limit` remains completely unenforced (soft cap,
+   deliberately out of scope for this slice) - CSV uploads and broadcaster
+   counts behave exactly as before.
+
+**How to verify:**
+```sql
+-- confirm a test business's current plan and limits:
+SELECT s.plan_code, pf.feature_key, pf.value
+FROM subscriptions s JOIN plan_features pf ON pf.plan_code = s.plan_code
+WHERE s.business_id = '<business_id>' AND pf.feature_key IN ('internal_user_limit', 'recruiter_logins');
+-- (or, if no subscriptions row, essential defaults apply: internal_user_limit=3, recruiter_logins=2)
+
+-- count current active memberships by kind for that business:
+SELECT role, count(*) FROM memberships
+WHERE business_id = '<business_id>' AND status = 'Active'
+  AND role IN ('owner', 'agency_manager', 'auditor', 'trial_viewer')
+GROUP BY role;
+```
+Then, as Owner, try creating enough Sub-Agency (recruiter) or
+Owner/Agency Manager (internal) logins to hit the limit and confirm the
+block message appears on the one that would exceed it, and that
+everything under the limit still works.
+
+**Status:** Implemented, compiled, self-reviewed, counting logic tested
+directly against synthetic data. Not yet pushed to dev.
