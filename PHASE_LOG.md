@@ -376,3 +376,71 @@ recur here, especially the pooler/DNS and password mismatch issues.
    `dev`) to `origin/main`.
 5. Confirm real prod logins still work — same spirit as the dev checklist,
    but this time it's actual customers' accounts, not test ones.
+
+---
+
+## 2026-08-22 — `run_migrations.py` succeeded against prod
+
+**What happened:** Ran the migration against prod using the Session pooler
++ project-ref-qualified username format learned from today's dev
+troubleshooting — no connection issues this time.
+
+**Expected result:** `StreamOperiq database migration completed
+successfully.`
+
+**Actual result:** Exact match, no error.
+
+**Status:** Done. `memberships` and `subscriptions` tables now exist on
+prod. Next: grant script.
+
+---
+
+## 2026-08-22 — `restricted_role_setup.sql` succeeded against prod
+
+**Expected result:** No error; final SELECT returns `tangoops_app` with
+every privilege flag `false`.
+
+**Actual result:** Confirmed by the user — matched exactly.
+
+**Status:** Done. `tangoops_app` now has access to `memberships` and
+`subscriptions` on prod, same as dev. Next: backfill.
+
+---
+
+## 2026-08-22 — `backfill_memberships.py` against prod: caught a stale env var pointing it at dev instead
+
+**What happened:** First backfill attempt against prod reported "Nothing to
+do" — 13 users found, 0 new rows, 0 businesses to flag. That matched dev's
+state *exactly* (12 original + 1 test user created during dev's checklist =
+13), which was the tell. Root cause: `TANGOOPS_DATABASE_URL`, exported
+earlier in this same terminal session to route dev's backfill around the
+prod-pointing `secrets.toml`, was still set — and the script checks that
+env var before falling back to `secrets.toml`. It silently hit dev again
+instead of prod. `secrets.toml` itself was correct and untouched.
+
+**Verification before retrying (not just trusting the fix):**
+1. Cancelled the run cleanly (typed anything but `yes` — the script exits
+   with "no changes made").
+2. `unset TANGOOPS_DATABASE_URL`, confirmed with `echo` that it printed
+   empty.
+3. Directly queried prod's `businesses` table
+   (`SELECT business_id, business_name, status, created_at FROM businesses
+   ORDER BY created_at;`) and confirmed three distinct, real-looking
+   business names (NorthStar Talent Network, Elevate Live Agency, Horizon
+   Creator Network) — nothing like dev's dummy test businesses.
+
+**Expected result (re-verified prod-specific):** 12 users found, 12 new
+membership rows, 3 of 3 businesses flagged demo.
+
+**Actual result:** `Backfill complete: 12 membership rows inserted, 3
+businesses flagged is_demo=true` — exact match.
+
+**Lesson for next time an env var override is used:** `unset` it
+immediately after the one command it was needed for, don't leave it
+lingering in the shell session — it silently overrides `secrets.toml` on
+every subsequent script run in that same terminal, with no warning.
+
+**Status:** Done. `memberships` now populated on prod; all 3 real
+businesses flagged `is_demo = true` — same treatment as dev's dummy ones,
+per the earlier confirmed decision that all current tenants (real or not)
+predate the SaaS billing model and shouldn't be enforced against yet.
