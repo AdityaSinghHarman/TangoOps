@@ -651,3 +651,31 @@ problem here.
 
 **Status:** Resolved. `roles`, `permissions`, `role_permissions` tables now
 exist on prod. Next: grant script.
+
+---
+
+## 2026-08-22 — Phase 3a: grant script succeeded against prod
+
+**Expected result:** No error; final SELECT returns `tangoops_app` with
+every privilege flag `false`.
+
+**Actual result:** Confirmed by the user — matched exactly.
+
+**Status:** Done. `tangoops_app` now has access to `roles`, `permissions`,
+`role_permissions` on prod. Next: verify seed data row counts.
+
+---
+
+## 2026-08-22 — Phase 3a: prod seed data verified correct
+
+**Expected result:** `roles_count = 8`, `permissions_count = 17`,
+`role_permissions_count = 35`.
+
+**Actual result:** Exact match — `8, 17, 35`.
+
+**Status: Phase 3a — fully verified on prod, same as dev.** Schema,
+grants, and seed data confirmed correct on both environments. Code push to
+`main` is next — this is schema/data that already exists in the database
+independent of the code push, so pushing the code now just brings
+`store.py`'s `has_permission()`/`get_roles()`/etc. helper functions (still
+unused by `app.py`) into sync between dev and prod.
