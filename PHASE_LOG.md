@@ -1314,4 +1314,13 @@ UPDATE subscriptions SET plan_code = 'essential' WHERE business_id = '<business_
 -- or: DELETE FROM subscriptions WHERE business_id = '<business_id>';
 ```
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at commit
+`5e7fc9b`. Tested on dev by the user 2026-08-22: confirmed the "off" state
+first (existing test business "NorthStar Talent Network," no
+`subscriptions` row, showed the upgrade message correctly in the Insights
+tab and Overview panel — initial confusion during testing turned out to
+just be the user looking at the expected off-state screen, not a bug),
+then confirmed the "on" state after inserting a `subscriptions` row with
+`plan_code='growth'` — health score ring, retention warning, and full
+Insights tab content all reappeared as expected. Result: **tested as
+expected.** Not yet pushed to prod.
