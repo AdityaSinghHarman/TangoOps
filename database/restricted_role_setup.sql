@@ -10,7 +10,8 @@
 -- on "role already exists" once the role has been created once.
 -- 21 Aug 2026: added 'memberships' (was missed when that table was first
 -- added) and 'subscriptions'. 22 Aug 2026: added 'roles', 'permissions',
--- 'role_permissions' (Phase 3, schema/seed only).
+-- 'role_permissions' (Phase 3, schema/seed only), then 'plans',
+-- 'plan_features', 'entitlements' (Phase 4a, schema/seed only).
 
 DO $$
 BEGIN
@@ -39,7 +40,7 @@ DECLARE
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
-        'role_permissions', 'agencies', 'raw_uploads',
+        'role_permissions', 'plans', 'plan_features', 'entitlements', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP

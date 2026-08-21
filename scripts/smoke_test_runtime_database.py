@@ -66,6 +66,22 @@ def main():
                 "INSERT INTO role_permissions (role_code, permission_key) VALUES (%s,%s)",
                 (role_code, permission_key),
             )
+            plan_code = f"{marker}_plan"
+            cur.execute(
+                "INSERT INTO plans (code, name, price_monthly, price_annual, currency, billing_mode) "
+                "VALUES (%s,%s,999,9990,'INR','recurring')",
+                (plan_code, marker),
+            )
+            cur.execute(
+                "INSERT INTO plan_features (plan_code, feature_key, value_type, value) "
+                "VALUES (%s,'test_feature','numeric','5')",
+                (plan_code,),
+            )
+            cur.execute(
+                "INSERT INTO entitlements (business_id, feature_key, value_type, value, overridden_by) "
+                "VALUES (%s,'test_feature','numeric','10',%s)",
+                (business_id, username),
+            )
             cur.execute(
                 "INSERT INTO agencies (business_id, agency_name, commission_pct) VALUES (%s,%s,5)",
                 (business_id, marker),

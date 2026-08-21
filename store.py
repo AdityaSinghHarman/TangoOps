@@ -12,8 +12,10 @@ Tables (created through the administrator-only migration command):
                      login, added so identity is no longer hardwired to a
                      single business_id/role pair on the users row itself
   subscriptions     one row per business: its current plan/billing state.
-                     Schema only for now (no app wiring) — added early to
-                     carry a one-time annual purchase (auto_renew=false)
+                     get_tenant_plan_code()/has_feature() read this now
+                     (Phase 4); no business is billed on it yet — no
+                     payment gateway (Section 11), and app.py doesn't gate
+                     any UI on has_feature() yet either
   roles             the 8 named roles (Phase 3). Schema + seed data only —
                      app.py still branches on is_owner/is_sub_agency/
                      is_platform_admin, not this table, until the app.py
@@ -21,6 +23,15 @@ Tables (created through the administrator-only migration command):
   permissions       atomic capabilities (e.g. 'broadcaster.upload')
   role_permissions  which permissions each role has; has_permission() reads
                      this but nothing calls it yet
+  plans             the 5 plan catalog (Essential/Growth/Scale/Network/
+                     Pioneer), seeded with Section 04's pricing
+  plan_features     one row per (plan, feature) — Section 04's full
+                     comparison table, normalized
+  entitlements       manual per-tenant overrides ONLY, not a snapshot of
+                     every tenant's entitlements — has_feature() checks
+                     here first, falls through to plan_features if no
+                     override row exists. app.py doesn't call has_feature()
+                     for any actual gate yet (Phase 4a is schema+seed only)
   agencies          sub-agency names, per business
   raw_uploads       every uploaded period's broadcaster stats, per business
   assignments       permanent profile_url -> sub_agency mapping, per business
@@ -129,6 +140,137 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     CONSTRAINT subscriptions_status_valid
         CHECK (status IN ('trialing', 'active', 'grace', 'restricted', 'cancelled', 'expired'))
 );
+
+-- Phase 4 (Plans & entitlements), schema + seed only for now — nothing in
+-- app.py reads has_feature() yet, so this changes no runtime behavior.
+-- Design: has_feature() resolves LIVE at call time (entitlements override,
+-- else the tenant's current subscriptions.plan_code looked up against
+-- plan_features) rather than a synced/cached snapshot per tenant. This is
+-- what makes "change a tenant's plan_code in the DB, behavior changes
+-- immediately, no resync step, no deploy" (the Phase 4 acceptance
+-- criterion) true by construction rather than something to remember to
+-- keep in sync.
+CREATE TABLE IF NOT EXISTS plans (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price_monthly NUMERIC(10,2),
+    price_annual NUMERIC(10,2),
+    currency TEXT NOT NULL DEFAULT 'INR',
+    -- 'recurring' (Essential/Growth/Scale/Network) or 'one_time_annual'
+    -- (Pioneer, Section 04/11) - Pioneer has no price_monthly at all.
+    billing_mode TEXT NOT NULL DEFAULT 'recurring',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT plans_billing_mode_valid
+        CHECK (billing_mode IN ('recurring', 'one_time_annual'))
+);
+
+-- One row per (plan, feature). value is always TEXT; value_type says how to
+-- interpret it. Numeric limits use -1 as the "unlimited" sentinel rather
+-- than a large number or NULL, so a consumer can always safely parse an int.
+CREATE TABLE IF NOT EXISTS plan_features (
+    plan_code TEXT NOT NULL REFERENCES plans(code),
+    feature_key TEXT NOT NULL,
+    value_type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (plan_code, feature_key),
+    CONSTRAINT plan_features_value_type_valid
+        CHECK (value_type IN ('boolean', 'numeric', 'text'))
+);
+
+-- Manual per-tenant overrides ONLY - a tenant with no override on a given
+-- feature simply has no row here, and has_feature() falls through to their
+-- plan's default. Most tenants will have zero rows in this table; it is
+-- not a snapshot of every tenant's full entitlement set.
+CREATE TABLE IF NOT EXISTS entitlements (
+    business_id TEXT NOT NULL REFERENCES businesses(business_id),
+    feature_key TEXT NOT NULL,
+    value_type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    overridden_by TEXT,
+    overridden_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (business_id, feature_key),
+    CONSTRAINT entitlements_value_type_valid
+        CHECK (value_type IN ('boolean', 'numeric', 'text'))
+);
+
+INSERT INTO plans (code, name, price_monthly, price_annual, currency, billing_mode) VALUES
+    ('essential', 'Essential', 3999, 39990, 'INR', 'recurring'),
+    ('growth', 'Growth', 9999, 99990, 'INR', 'recurring'),
+    ('scale', 'Scale', 24999, 249990, 'INR', 'recurring'),
+    ('network', 'Network', 59999, 599990, 'INR', 'recurring'),
+    ('pioneer', 'Pioneer', NULL, 99999, 'INR', 'one_time_annual')
+ON CONFLICT (code) DO NOTHING;
+
+-- Mirrors Section 04's plan-comparison table exactly. Pioneer intentionally
+-- duplicates Growth's row-for-row values (Section 04: "Pioneer isn't a new
+-- capability tier, it's Growth sold under different billing terms").
+INSERT INTO plan_features (plan_code, feature_key, value_type, value) VALUES
+    ('essential', 'broadcaster_limit', 'numeric', '100'),
+    ('essential', 'internal_user_limit', 'numeric', '3'),
+    ('essential', 'recruiter_logins', 'numeric', '2'),
+    ('essential', 'broadcaster_dashboard_access', 'text', 'off'),
+    ('essential', 'upload_frequency', 'text', 'monthly'),
+    ('essential', 'historical_data_months', 'numeric', '6'),
+    ('essential', 'automated_reports', 'text', 'off'),
+    ('essential', 'ai_features', 'text', 'off'),
+    ('essential', 'white_label_access', 'text', 'off'),
+    ('essential', 'exports', 'text', 'csv'),
+    ('essential', 'support_level', 'text', 'email'),
+    ('essential', 'agency_workspaces', 'numeric', '1'),
+
+    ('growth', 'broadcaster_limit', 'numeric', '500'),
+    ('growth', 'internal_user_limit', 'numeric', '10'),
+    ('growth', 'recruiter_logins', 'numeric', '5'),
+    ('growth', 'broadcaster_dashboard_access', 'text', 'readonly'),
+    ('growth', 'upload_frequency', 'text', 'weekly'),
+    ('growth', 'historical_data_months', 'numeric', '18'),
+    ('growth', 'automated_reports', 'text', 'monthly'),
+    ('growth', 'ai_features', 'text', 'basic'),
+    ('growth', 'white_label_access', 'text', 'off'),
+    ('growth', 'exports', 'text', 'csv_pdf'),
+    ('growth', 'support_level', 'text', 'priority_email'),
+    ('growth', 'agency_workspaces', 'numeric', '1'),
+
+    ('scale', 'broadcaster_limit', 'numeric', '2500'),
+    ('scale', 'internal_user_limit', 'numeric', '30'),
+    ('scale', 'recruiter_logins', 'numeric', '10'),
+    ('scale', 'broadcaster_dashboard_access', 'text', 'full'),
+    ('scale', 'upload_frequency', 'text', 'daily'),
+    ('scale', 'historical_data_months', 'numeric', '36'),
+    ('scale', 'automated_reports', 'text', 'weekly'),
+    ('scale', 'ai_features', 'text', 'advanced'),
+    ('scale', 'white_label_access', 'text', 'logo_only'),
+    ('scale', 'exports', 'text', 'csv_pdf'),
+    ('scale', 'support_level', 'text', 'priority_chat'),
+    ('scale', 'agency_workspaces', 'numeric', '1'),
+
+    ('network', 'broadcaster_limit', 'numeric', '6000'),
+    ('network', 'internal_user_limit', 'numeric', '-1'),
+    ('network', 'recruiter_logins', 'numeric', '20'),
+    ('network', 'broadcaster_dashboard_access', 'text', 'full_custom'),
+    ('network', 'upload_frequency', 'text', 'unlimited'),
+    ('network', 'historical_data_months', 'numeric', '-1'),
+    ('network', 'automated_reports', 'text', 'custom'),
+    ('network', 'ai_features', 'text', 'custom'),
+    ('network', 'white_label_access', 'text', 'full'),
+    ('network', 'exports', 'text', 'csv_pdf_scheduled'),
+    ('network', 'support_level', 'text', 'dedicated'),
+    ('network', 'agency_workspaces', 'numeric', '1'),
+
+    ('pioneer', 'broadcaster_limit', 'numeric', '500'),
+    ('pioneer', 'internal_user_limit', 'numeric', '10'),
+    ('pioneer', 'recruiter_logins', 'numeric', '5'),
+    ('pioneer', 'broadcaster_dashboard_access', 'text', 'readonly'),
+    ('pioneer', 'upload_frequency', 'text', 'weekly'),
+    ('pioneer', 'historical_data_months', 'numeric', '18'),
+    ('pioneer', 'automated_reports', 'text', 'monthly'),
+    ('pioneer', 'ai_features', 'text', 'basic'),
+    ('pioneer', 'white_label_access', 'text', 'off'),
+    ('pioneer', 'exports', 'text', 'csv_pdf'),
+    ('pioneer', 'support_level', 'text', 'priority_email'),
+    ('pioneer', 'agency_workspaces', 'numeric', '1')
+ON CONFLICT (plan_code, feature_key) DO NOTHING;
 
 -- Phase 3 (Roles & permissions), schema + seed data only for now — nothing
 -- in app.py reads these tables yet, so seeding them here changes no runtime
@@ -363,7 +505,7 @@ DECLARE table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
-        'role_permissions', 'agencies', 'raw_uploads',
+        'role_permissions', 'plans', 'plan_features', 'entitlements', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
@@ -380,7 +522,7 @@ END $$;
 
 RUNTIME_TABLES = (
     "businesses", "users", "memberships", "subscriptions", "roles", "permissions",
-    "role_permissions", "agencies", "raw_uploads",
+    "role_permissions", "plans", "plan_features", "entitlements", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )
@@ -713,6 +855,103 @@ def has_permission(role_code: str, permission_key: str) -> bool:
         (role_code, permission_key),
     )
     return not df.empty
+
+
+# ---------------- plans & entitlements (Phase 4, schema/seed only — see PHASE_LOG.md) ----------------
+
+def get_plans() -> pd.DataFrame:
+    return _query(
+        "SELECT code, name, price_monthly, price_annual, currency, billing_mode, is_active "
+        "FROM plans ORDER BY price_annual"
+    )
+
+
+def get_plan_features(plan_code: str = None) -> pd.DataFrame:
+    """All plan_features rows, or just one plan's if plan_code is given."""
+    if plan_code:
+        return _query(
+            "SELECT feature_key, value_type, value FROM plan_features "
+            "WHERE plan_code=%s ORDER BY feature_key",
+            (plan_code,),
+        )
+    return _query(
+        "SELECT plan_code, feature_key, value_type, value FROM plan_features "
+        "ORDER BY plan_code, feature_key"
+    )
+
+
+def get_tenant_plan_code(business_id: str) -> str:
+    """The tenant's current plan, defaulting to 'essential' - the most
+    restrictive tier - if this business has no subscriptions row at all
+    (every existing business predates Phase 4 and was never assigned one).
+    Fails toward restriction, not toward giving features away for free."""
+    df = _query("SELECT plan_code FROM subscriptions WHERE business_id=%s", (business_id,))
+    if df.empty:
+        return "essential"
+    return df.iloc[0]["plan_code"]
+
+
+def _cast_feature_value(value_type: str, value: str):
+    if value_type == "boolean":
+        return str(value).strip().lower() in ("true", "t", "1", "yes")
+    if value_type == "numeric":
+        return int(value)
+    return value
+
+
+def has_feature(business_id: str, feature_key: str):
+    """Resolves LIVE, every call: a manual entitlements override for this
+    (business_id, feature_key) if one exists, else the tenant's current
+    plan's default from plan_features. This is deliberate - it means
+    changing subscriptions.plan_code alone changes what has_feature()
+    returns on the very next call, with no resync step and no deploy,
+    which is Phase 4's own stated acceptance criterion. Returns None if
+    the feature_key doesn't exist anywhere (unknown key, not a value of
+    None as a valid feature state)."""
+    override = _query(
+        "SELECT value_type, value FROM entitlements WHERE business_id=%s AND feature_key=%s",
+        (business_id, feature_key),
+    )
+    if not override.empty:
+        row = override.iloc[0]
+        return _cast_feature_value(row["value_type"], row["value"])
+
+    plan_code = get_tenant_plan_code(business_id)
+    plan_row = _query(
+        "SELECT value_type, value FROM plan_features WHERE plan_code=%s AND feature_key=%s",
+        (plan_code, feature_key),
+    )
+    if plan_row.empty:
+        return None
+    row = plan_row.iloc[0]
+    return _cast_feature_value(row["value_type"], row["value"])
+
+
+def get_entitlement_overrides(business_id: str) -> pd.DataFrame:
+    return _query(
+        "SELECT feature_key, value_type, value, overridden_by, overridden_at "
+        "FROM entitlements WHERE business_id=%s ORDER BY feature_key",
+        (business_id,),
+    )
+
+
+def set_entitlement_override(business_id: str, feature_key: str, value_type: str,
+                              value: str, overridden_by: str = ""):
+    _execute(
+        "INSERT INTO entitlements (business_id, feature_key, value_type, value, overridden_by, overridden_at) "
+        "VALUES (%s,%s,%s,%s,%s,now()) "
+        "ON CONFLICT (business_id, feature_key) DO UPDATE SET "
+        "value_type=EXCLUDED.value_type, value=EXCLUDED.value, "
+        "overridden_by=EXCLUDED.overridden_by, overridden_at=now()",
+        (business_id, feature_key, value_type, value, _normalize_username(overridden_by)),
+    )
+
+
+def clear_entitlement_override(business_id: str, feature_key: str):
+    _execute(
+        "DELETE FROM entitlements WHERE business_id=%s AND feature_key=%s",
+        (business_id, feature_key),
+    )
 
 
 def log_security_event(event_type: str, actor_username: str = "", actor_role: str = "",

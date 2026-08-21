@@ -18,7 +18,7 @@ import psycopg2
 
 TABLES = (
     "businesses", "users", "memberships", "subscriptions", "roles", "permissions",
-    "role_permissions", "agencies", "raw_uploads",
+    "role_permissions", "plans", "plan_features", "entitlements", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )

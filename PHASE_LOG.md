@@ -1160,3 +1160,66 @@ and prod.** `main` and `dev` both at commit `44a54b1`.
   boolean role checks (`is_owner`, `is_manager`, etc.), consistent with
   the existing codebase style, not the permission-table lookup. Wiring
   the two together is future cleanup, not required for correctness today.
+
+---
+
+## 2026-08-22 — Phase 4a: Plans & entitlements — schema, seed, resolver
+
+**Scope agreed with the user**: 4a today (schema + seed + `has_feature()`
+resolver, safe/additive, zero behavior change — same profile as Phase 3a).
+Wiring individual features to real UI gates (4b) is its own follow-on
+pass, same as each Phase 3b role was.
+
+**Design decision worth restating**: `has_feature()` resolves **live**,
+every call — checks `entitlements` for a manual override first, falls
+through to the tenant's current `subscriptions.plan_code` looked up
+against `plan_features` if none exists. `entitlements` is deliberately
+NOT a synced snapshot of every tenant's full entitlement set — it only
+ever holds rows for tenants with an actual override. This is what makes
+Phase 4's own acceptance criterion ("changing a tenant's plan in the DB
+alone changes what they can do — no code deploy required") true by
+construction: there's no resync step to remember, because there's nothing
+to resync.
+
+**What was done:**
+- `plans` — 5-row catalog (Essential, Growth, Scale, Network, Pioneer),
+  seeded with the exact pricing from Section 04: ₹3,999/9,999/24,999/59,999
+  monthly (₹39,990/99,990/249,990/599,990 annual — "2 months free"), and
+  Pioneer at ₹99,999 one-time-annual only (`billing_mode = 'one_time_annual'`,
+  `price_monthly = NULL`).
+- `plan_features` — one row per (plan, feature), 12 feature keys × 5 plans
+  = 60 rows, mirroring Section 04's comparison table exactly:
+  `broadcaster_limit`, `internal_user_limit`, `recruiter_logins`,
+  `broadcaster_dashboard_access`, `upload_frequency`,
+  `historical_data_months`, `automated_reports`, `ai_features`,
+  `white_label_access`, `exports`, `support_level`, `agency_workspaces`.
+  Numeric "unlimited" values use `-1` as a sentinel, not `NULL` or a large
+  number, so a consumer can always safely parse an int. Pioneer's row set
+  is a literal duplicate of Growth's (Section 04: "Pioneer isn't a new
+  capability tier, it's Growth sold under different billing terms").
+- `entitlements` — override-only table, schema ready, zero rows expected
+  in normal operation.
+- `store.py`: `get_plans()`, `get_plan_features()`, `get_tenant_plan_code()`
+  (defaults to `'essential'` — the most restrictive tier — for any
+  business with no `subscriptions` row at all, which is every existing
+  business today; fails toward restriction, not toward free features),
+  `has_feature()`, `get_entitlement_overrides()`,
+  `set_entitlement_override()`, `clear_entitlement_override()`.
+- Extended the grant script, `verify_database_role.py`'s `TABLES`, and
+  `smoke_test_runtime_database.py` to cover all three new tables, same as
+  every previous table addition.
+
+**Expected result once migrated:** `plans` has 5 rows, `plan_features` has
+60 rows, `entitlements` has 0 rows. Nothing in the running app changes —
+`app.py` doesn't call `has_feature()` anywhere yet.
+
+**How to verify:**
+```sql
+SELECT
+  (SELECT COUNT(*) FROM plans) AS plans_count,
+  (SELECT COUNT(*) FROM plan_features) AS plan_features_count,
+  (SELECT COUNT(*) FROM entitlements) AS entitlements_count;
+```
+Expected: `5, 60, 0`.
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
