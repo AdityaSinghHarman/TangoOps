@@ -1116,3 +1116,47 @@ caught and fixed before testing this time).
 dev.** Ready for prod, same rollout pattern as the other three roles —
 this one needs the migration run there too (real schema change, unlike
 Auditor/Trial Viewer).
+
+---
+
+## 2026-08-22 — Broadcaster's first slice: pushed to prod, fully verified there too — no credential-sync repeat
+
+**What happened:** Migration run against prod using the correct admin
+connection (`postgres.qppoydbfbtuzchtggeue`) — succeeded cleanly this
+time, no repeat of the Supabase pooler credential-sync issue from earlier
+today. Confirms that was a one-off, not a recurring pattern. Code pushed
+to `main`, app rebooted, same promote → verify → revert cycle run
+directly on prod.
+
+**Actual result:** Confirmed by the user — "Test results are as
+expected."
+
+**Status: Phase 3b — all four roles now live and verified on both dev
+and prod.** `main` and `dev` both at commit `44a54b1`.
+
+**Summary of everything shipped in Phase 3b today:**
+- **Agency Manager** — full working role, everything Owner sees except
+  billing/plan and 4 specific write actions.
+- **Auditor** — read-only, full-tenant view, plus a new standalone Audit
+  Log page.
+- **Trial Viewer** — read-only, zero export (including Streamlit's own
+  dataframe-toolbar download icon), time-boxed via `expires_at`.
+- **Broadcaster (first slice)** — own-performance-only view, reusing the
+  existing BroadcasterDetail page, scoped to one `profile_url`.
+
+**What's deliberately still open, not forgotten:**
+- Broadcaster's actual invite/signup flow (SQL-only grant for now, same as
+  Trial Viewer and Auditor).
+- Plan-based dashboard-access gating for Broadcaster (Section 04) — Phase
+  4 work, entitlements don't exist yet.
+- A Super Admin "grant trial access" screen for Trial Viewer (Section 15)
+  — still SQL-only.
+- The cosmetic User Access role-label gap noted in the Auditor slice
+  entry — `users.role` vs `memberships.role` display inconsistency,
+  doesn't affect actual access control.
+- The rest of Phase 3's original scope: `has_permission()` and the
+  `roles`/`permissions`/`role_permissions` tables from 3a are still
+  unused by any of this — everything in Phase 3b was built with direct
+  boolean role checks (`is_owner`, `is_manager`, etc.), consistent with
+  the existing codebase style, not the permission-table lookup. Wiring
+  the two together is future cleanup, not required for correctness today.
