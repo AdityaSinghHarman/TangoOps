@@ -444,3 +444,53 @@ every subsequent script run in that same terminal, with no warning.
 businesses flagged `is_demo = true` — same treatment as dev's dummy ones,
 per the earlier confirmed decision that all current tenants (real or not)
 predate the SaaS billing model and shouldn't be enforced against yet.
+
+---
+
+## 2026-08-22 — Found: prod app connects to the database as the Postgres superuser, not the restricted `tangoops_app` role
+
+**This is a pre-existing security gap, not caused by Phase 2.** Discovered
+only because today was the first time anyone actually loaded the Platform
+Admin dashboard on live prod — `SECURITY_CHECKLIST.md` had this exact live
+test listed as **Blocked** beforehand, meaning nobody had verified it in
+the running app itself, only via standalone scripts.
+
+**What was found:** After deploying and rebooting the prod app, logging in
+as Platform Admin showed "The platform security configuration requires
+administrator attention" — the app's own fail-closed check
+(`get_database_role_posture()` in `store.py`, gated behind
+`is_platform_admin` in `app.py`) refuses to render that page if the live
+database connection has any elevated privilege (superuser, create-database,
+create-role, replication, or RLS-bypass).
+
+Checked prod's actual Streamlit Cloud secrets: the `[postgres]
+connection_string` username is `postgres.qppoydbfbtuzchtggeue` — the full
+Supabase admin/superuser account — not `tangoops_app`, the restricted role
+that was supposedly already set up and verified per `SECURITY_CHECKLIST.md`'s
+"Completed" section. Most likely explanation: the restricted role was
+verified in isolation with the standalone scripts
+(`verify_database_role.py`, `smoke_test_runtime_database.py`), but the live
+app's actual secrets were never switched over to use it.
+
+**Scope of impact:** Confirmed **not** affecting regular customer logins —
+Agency Owner and Sub-Agency accounts resolve through a separate code path
+that never calls this check. This is specifically a Platform Admin
+dashboard issue. Also means the app has been running with far more database
+privilege than it needs for its entire runtime, which is a real exposure
+regardless of whether it's been exploited — least-privilege was the whole
+point of the earlier security-hardening work, and this defeats it.
+
+**Fix (pending, not yet applied as of this log entry):**
+1. `ALTER ROLE tangoops_app WITH PASSWORD '<new-password>';` on prod.
+2. Update prod's Streamlit Cloud secrets: change the `[postgres]
+   connection_string` username from `postgres.qppoydbfbtuzchtggeue` to
+   `tangoops_app.qppoydbfbtuzchtggeue`, password to match. Host/port/db
+   unchanged.
+3. Save, reboot, reload Platform Overview.
+
+**Expected result once fixed:** Platform Overview loads normally instead of
+showing the fail-closed message; `get_database_role_posture()` reports all
+five privilege flags `false` for prod, same as dev already does.
+
+**Status:** Found and logged. Fix not yet applied — pending the user
+setting the new password and updating Streamlit Cloud secrets.
