@@ -1251,3 +1251,67 @@ first candidates, each its own testable slice like Phase 3b's roles were:
 `broadcaster_dashboard_access` (gates the Statistics page), `exports`
 (extends the `can_export`/download-button work from Trial Viewer),
 `ai_features`, `upload_frequency`, `broadcaster_limit`. Not started.
+
+---
+
+## 2026-08-22 — Phase 4b, first slice: `ai_features` gates the Admin dashboard's AI-derived sections
+
+**No schema change** — `has_feature()` already existed from 4a. Pure
+`app.py` work.
+
+**What was done:**
+- `load_ai_features_enabled(business_id)` — cached (`ttl=30`, matching the
+  rest of the app's loader pattern), calls `store.has_feature(business_id,
+  'ai_features')`, treats anything other than `'off'`/`None` as enabled
+  (the specific basic/advanced/custom tier distinction is future scope,
+  not this slice).
+- Gated the Overview panel's two AI-derived cards (broadcaster health
+  score ring, retention warning) — replaced with a one-line upgrade
+  message when off.
+- Gated the **entire "Insights" tab** — its panel boundary was already
+  clean and self-contained (retention/at-risk insight cards, the at-risk
+  expander, the rule-based "Monthly management summary," the follow-up
+  task list) — replaced with a single upgrade message when off, rather
+  than gating each piece separately.
+- **Deliberately scoped to the Admin dashboard only** — Statistics page's
+  and the Recruiter (SubAgencies) dashboard's own health-score/retention
+  displays are NOT touched in this slice; they're a separate concern
+  (Statistics is also meant to be plan-gated via
+  `broadcaster_dashboard_access`, a different not-yet-done slice) and
+  mixing the two risked scope creep.
+
+**Important thing to know before testing**: no business has a
+`subscriptions` row yet (Phase 4a didn't backfill one), and
+`get_tenant_plan_code()` defaults to `'essential'` when none exists.
+**This means every existing business will show `ai_enabled = False`
+immediately on deploy** — the Admin dashboard should show the upgrade
+messages right away, without needing to change anything first. To see the
+"on" state, a `subscriptions` row needs to exist with a plan other than
+`essential`.
+
+**Expected result:**
+1. **Immediately after deploy, any existing test business**: Overview
+   panel shows an upgrade message instead of the health score/retention
+   cards; Insights tab shows one upgrade message instead of its whole
+   usual content.
+2. **After giving a test business a non-essential plan** (see below): the
+   real health score, retention alert, and full Insights tab content all
+   reappear exactly as they looked before this slice.
+
+**How to verify:**
+```sql
+-- confirm the "off" state first (should already be true for any business):
+-- log in, check the Admin dashboard shows the upgrade messages.
+
+-- then give one test business a plan that has AI on:
+INSERT INTO subscriptions (business_id, plan_code, billing_cycle, status, auto_renew)
+VALUES ('<business_id>', 'growth', 'annual', 'active', false)
+ON CONFLICT (business_id) DO UPDATE SET plan_code = 'growth';
+-- log back in (or just reload after the 30s cache expires) - AI sections should reappear.
+
+-- revert when done:
+UPDATE subscriptions SET plan_code = 'essential' WHERE business_id = '<business_id>';
+-- or: DELETE FROM subscriptions WHERE business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.

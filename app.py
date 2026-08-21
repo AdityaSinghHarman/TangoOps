@@ -716,6 +716,18 @@ def load_all_memberships_df():
     return store.get_all_memberships()
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_ai_features_enabled(biz_id):
+    """Phase 4b, first slice: the health-score/at-risk/retention insights
+    are real, already-built statistical functions (utils.py) that used to
+    show unconditionally regardless of plan. Section 04: Essential = off,
+    Growth and above = on (basic/advanced/custom all count as enabled here -
+    the specific AI tier distinction between them is future scope, not this
+    slice)."""
+    value = store.has_feature(biz_id, "ai_features")
+    return value not in (None, "off")
+
+
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
@@ -1656,6 +1668,7 @@ elif st.session_state.page == "MyProfile":
 
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":
+    ai_enabled = load_ai_features_enabled(business_id)
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     overview_title = "My Dashboard" if can_view_full_tenant else f"{html.escape(str(user_agency))} overview"
     overview_subtitle = (f"Performance across {html.escape(str(business_name))}'s agency network" if can_view_full_tenant
@@ -1735,26 +1748,32 @@ elif st.session_state.page == "Admin":
 
     my_overview_panel = dashboard_panel("my_dashboard", "Overview")
     my_overview_panel.__enter__()
-    score_col, alert_col = st.columns(2)
-    with score_col:
-        st.markdown(f"""
-        <div class="command-score">
-          <div class="command-score-ring" style="--score:{health_score}"><div class="command-score-value">{health_score}</div></div>
-          <div class="command-score-copy"><h3>Broadcaster health score</h3>
-          <p><strong>{health_label}</strong><br>Activity, retention, consistency and performance movement combined into one transparent score.</p></div>
-        </div>
-        """, unsafe_allow_html=True)
-    with alert_col:
-        warning_copy = ("Previously productive broadcasters have no streaming activity this month."
-                        if len(at_risk_df) else "No previously productive broadcasters have dropped to zero activity.")
-        st.markdown(f"""
-        <div class="command-alert">
-          <div class="command-alert-label">Retention warning</div>
-          <div class="command-alert-value">{len(at_risk_df)} broadcaster{'s' if len(at_risk_df) != 1 else ''} at risk</div>
-          <div class="command-alert-copy">{warning_copy}</div>
-          <div class="command-footnote">Retention: {f'{retention:.1f}%' if retention is not None else 'First reporting period'}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    if ai_enabled:
+        score_col, alert_col = st.columns(2)
+        with score_col:
+            st.markdown(f"""
+            <div class="command-score">
+              <div class="command-score-ring" style="--score:{health_score}"><div class="command-score-value">{health_score}</div></div>
+              <div class="command-score-copy"><h3>Broadcaster health score</h3>
+              <p><strong>{health_label}</strong><br>Activity, retention, consistency and performance movement combined into one transparent score.</p></div>
+            </div>
+            """, unsafe_allow_html=True)
+        with alert_col:
+            warning_copy = ("Previously productive broadcasters have no streaming activity this month."
+                            if len(at_risk_df) else "No previously productive broadcasters have dropped to zero activity.")
+            st.markdown(f"""
+            <div class="command-alert">
+              <div class="command-alert-label">Retention warning</div>
+              <div class="command-alert-value">{len(at_risk_df)} broadcaster{'s' if len(at_risk_df) != 1 else ''} at risk</div>
+              <div class="command-alert-copy">{warning_copy}</div>
+              <div class="command-footnote">Retention: {f'{retention:.1f}%' if retention is not None else 'First reporting period'}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info(
+            "**AI-driven health score and retention alerts are a Growth-plan feature and above.** "
+            "Upgrade to see a broadcaster health score and early retention warnings here."
+        )
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -1863,98 +1882,105 @@ elif st.session_state.page == "Admin":
 
     my_insights_panel = dashboard_panel("my_dashboard", "Insights")
     my_insights_panel.__enter__()
-    st.markdown("""
-    <div class="overview-section">
-      <h2>Automated Insights</h2>
-      <p>Signals that may need attention this reporting period.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    dpd_df = utils.diamonds_per_day(df_current)
-    avg_dpd = round(dpd_df["diamonds_per_day"].mean(), 1) if not dpd_df.empty else 0
-    quality_score = utils.data_quality_score(df_current)
-
-    i1, i2, i3, i4 = st.columns(4)
-    with i1:
-        st.markdown(f"""
-        <div class="insight-card">
-          <div class="insight-label">Retention health</div>
-          <div class="insight-value">{f'{retention}%' if retention is not None else '—'}</div>
-          <div class="insight-caption">Previously active broadcasters retained</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with i2:
-        st.markdown(f"""
-        <div class="insight-card">
-          <div class="insight-label">Requires attention</div>
-          <div class="insight-value">{len(at_risk_df)} at risk</div>
-          <div class="insight-caption">Active last period with no streaming days now</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with i3:
-        if can_view_full_tenant:
-            st.markdown(f"""
-            <div class="insight-card">
-              <div class="insight-label">Sub-Agency share</div>
-              <div class="insight-value">{attribution_all['pct_assigned']}%</div>
-              <div class="insight-caption">Roster assigned to third-party Sub-Agencies</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="insight-card">
-              <div class="insight-label">Daily efficiency</div>
-              <div class="insight-value">{avg_dpd:,}</div>
-              <div class="insight-caption">Average diamonds redeemed per streaming day</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with i4:
-        st.markdown(f"""
-        <div class="insight-card">
-          <div class="insight-label">Data quality</div>
-          <div class="insight-value">{quality_score}/100</div>
-          <div class="insight-caption">Completeness, valid values and unique profiles</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    at_risk_label = "broadcaster" if len(at_risk_df) == 1 else "broadcasters"
-    if len(at_risk_df) > 0:
-        with st.expander(f"{len(at_risk_df)} {at_risk_label} earned diamonds last period and streamed 0 days this period"):
-            at_risk_columns = (["broadcaster_name", "sub_agency"] if can_view_full_tenant
-                               else ["broadcaster_name"])
-            st.dataframe(
-                at_risk_df[at_risk_columns].reset_index(drop=True),
-                hide_index=True, width='stretch',
-                column_config=table_column_config(at_risk_columns),
-            )
-
-    # Rule-based monthly summary and follow-up list: useful without a paid AI service.
-    movement_text = (f"Diamonds are {abs(float(diamond_note.split()[1].replace('%',''))):.1f}% "
-                     f"{'higher' if diamond_direction == 'up' else 'lower'} than {previous_period}"
-                     if prev_kpis else "This is the first available reporting period")
-    st.info(
-        f"**Monthly management summary:** {movement_text}. Health is **{health_label.lower()}** at "
-        f"**{health_score}/100**, retention is **{f'{retention:.1f}%' if retention is not None else 'not yet available'}**, "
-        f"and **{len(at_risk_df)}** {at_risk_label} currently need retention follow-up."
-    )
-    follow_up_rows = []
-    for _, risk_row in at_risk_df.head(8).iterrows():
-        follow_up_rows.append({
-            "Priority": "High", "Broadcaster": risk_row["broadcaster_name"],
-            "Sub-Agency": risk_row.get("sub_agency", user_agency or "—"),
-            "Reason": "Previously productive; no streaming days this month",
-            "Recommended action": "Contact and agree a reactivation plan",
-        })
-    if not diamond_target["ahead"]:
-        follow_up_rows.append({
-            "Priority": "Medium", "Broadcaster": "Selected roster", "Sub-Agency": scope_agency or "All",
-            "Reason": f"{diamond_target['remaining']:,.0f} diamonds below monthly target",
-            "Recommended action": "Review declining broadcasters and target pacing",
-        })
-    if follow_up_rows:
-        with st.expander(f"Follow-up task list ({len(follow_up_rows)})", expanded=False):
-            st.dataframe(pd.DataFrame(follow_up_rows), hide_index=True, width="stretch")
+    if not ai_enabled:
+        st.info(
+            "**Automated Insights is a Growth-plan feature and above.** "
+            "Upgrade to unlock retention health, at-risk alerts, and an automated "
+            "monthly management summary here."
+        )
     else:
-        st.success("No urgent follow-up tasks for the selected reporting period.")
+        st.markdown("""
+        <div class="overview-section">
+          <h2>Automated Insights</h2>
+          <p>Signals that may need attention this reporting period.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        dpd_df = utils.diamonds_per_day(df_current)
+        avg_dpd = round(dpd_df["diamonds_per_day"].mean(), 1) if not dpd_df.empty else 0
+        quality_score = utils.data_quality_score(df_current)
+
+        i1, i2, i3, i4 = st.columns(4)
+        with i1:
+            st.markdown(f"""
+            <div class="insight-card">
+              <div class="insight-label">Retention health</div>
+              <div class="insight-value">{f'{retention}%' if retention is not None else '—'}</div>
+              <div class="insight-caption">Previously active broadcasters retained</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with i2:
+            st.markdown(f"""
+            <div class="insight-card">
+              <div class="insight-label">Requires attention</div>
+              <div class="insight-value">{len(at_risk_df)} at risk</div>
+              <div class="insight-caption">Active last period with no streaming days now</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with i3:
+            if can_view_full_tenant:
+                st.markdown(f"""
+                <div class="insight-card">
+                  <div class="insight-label">Sub-Agency share</div>
+                  <div class="insight-value">{attribution_all['pct_assigned']}%</div>
+                  <div class="insight-caption">Roster assigned to third-party Sub-Agencies</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="insight-card">
+                  <div class="insight-label">Daily efficiency</div>
+                  <div class="insight-value">{avg_dpd:,}</div>
+                  <div class="insight-caption">Average diamonds redeemed per streaming day</div>
+                </div>
+                """, unsafe_allow_html=True)
+        with i4:
+            st.markdown(f"""
+            <div class="insight-card">
+              <div class="insight-label">Data quality</div>
+              <div class="insight-value">{quality_score}/100</div>
+              <div class="insight-caption">Completeness, valid values and unique profiles</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        at_risk_label = "broadcaster" if len(at_risk_df) == 1 else "broadcasters"
+        if len(at_risk_df) > 0:
+            with st.expander(f"{len(at_risk_df)} {at_risk_label} earned diamonds last period and streamed 0 days this period"):
+                at_risk_columns = (["broadcaster_name", "sub_agency"] if can_view_full_tenant
+                                   else ["broadcaster_name"])
+                st.dataframe(
+                    at_risk_df[at_risk_columns].reset_index(drop=True),
+                    hide_index=True, width='stretch',
+                    column_config=table_column_config(at_risk_columns),
+                )
+
+        # Rule-based monthly summary and follow-up list: useful without a paid AI service.
+        movement_text = (f"Diamonds are {abs(float(diamond_note.split()[1].replace('%',''))):.1f}% "
+                         f"{'higher' if diamond_direction == 'up' else 'lower'} than {previous_period}"
+                         if prev_kpis else "This is the first available reporting period")
+        st.info(
+            f"**Monthly management summary:** {movement_text}. Health is **{health_label.lower()}** at "
+            f"**{health_score}/100**, retention is **{f'{retention:.1f}%' if retention is not None else 'not yet available'}**, "
+            f"and **{len(at_risk_df)}** {at_risk_label} currently need retention follow-up."
+        )
+        follow_up_rows = []
+        for _, risk_row in at_risk_df.head(8).iterrows():
+            follow_up_rows.append({
+                "Priority": "High", "Broadcaster": risk_row["broadcaster_name"],
+                "Sub-Agency": risk_row.get("sub_agency", user_agency or "—"),
+                "Reason": "Previously productive; no streaming days this month",
+                "Recommended action": "Contact and agree a reactivation plan",
+            })
+        if not diamond_target["ahead"]:
+            follow_up_rows.append({
+                "Priority": "Medium", "Broadcaster": "Selected roster", "Sub-Agency": scope_agency or "All",
+                "Reason": f"{diamond_target['remaining']:,.0f} diamonds below monthly target",
+                "Recommended action": "Review declining broadcasters and target pacing",
+            })
+        if follow_up_rows:
+            with st.expander(f"Follow-up task list ({len(follow_up_rows)})", expanded=False):
+                st.dataframe(pd.DataFrame(follow_up_rows), hide_index=True, width="stretch")
+        else:
+            st.success("No urgent follow-up tasks for the selected reporting period.")
     my_insights_panel.__exit__(None, None, None)
 
     my_performance_panel = dashboard_panel("my_dashboard", "Performance")
