@@ -492,5 +492,26 @@ point of the earlier security-hardening work, and this defeats it.
 showing the fail-closed message; `get_database_role_posture()` reports all
 five privilege flags `false` for prod, same as dev already does.
 
-**Status:** Found and logged. Fix not yet applied — pending the user
-setting the new password and updating Streamlit Cloud secrets.
+**Status:** Fixed. First attempt only changed the password, leaving the
+username as `postgres` — produced a second, misleading-looking error
+(`password authentication failed for user "postgres"`) that turned out to
+be the same root cause, just half-fixed. Corrected connection string
+(`tangoops_app.qppoydbfbtuzchtggeue`, new password, same host/port/db)
+applied, app rebooted. **Confirmed:** Platform Admin login now succeeds and
+loads Platform Overview normally — the fail-closed security check passes.
+
+---
+
+## 2026-08-22 — Phase 2: prod verification complete
+
+**Confirmed by the user:** both Platform Admin and Agency Admin logins
+succeed on prod, matching dev's verified behavior. Combined with the
+earlier-confirmed migration, grants, and backfill (all against real
+customer data, cross-checked against actual business names to rule out a
+repeat of the dev/prod mixup), **Phase 2 is fully live and verified in
+prod.**
+
+**Status: Phase 2 — done.** `memberships`, `subscriptions`,
+`memberships.expires_at`, the hardened `current_user_context()`, and the
+database-role fix are all live on both dev and prod. Next: Phase 3 (Roles &
+permissions), per the blueprint's Section 12.
