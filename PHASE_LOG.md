@@ -596,3 +596,58 @@ all confirmed correct. Nothing in the app reads any of it yet, so there's
 no login/UI behavior to test this time — the verification is the row
 counts themselves. Ready for a prod-push decision (zero behavior risk,
 same reasoning as Phase 2's schema-only commits).
+
+---
+
+## 2026-08-22 — Phase 3a on prod: `run_migrations.py` blocked for an extended time by a genuine Supabase-side credential sync issue
+
+**What happened:** Unlike every previous migration today, prod's `postgres`
+account kept failing `password authentication failed` across many
+attempts, despite methodically ruling out every configuration explanation:
+
+- Confirmed correct username format (`postgres.qppoydbfbtuzchtggeue`, not
+  `tangoops_app` — that exact mix-up recurred twice before landing on the
+  right one).
+- Confirmed correct host/port for both Session pooler (5432) and
+  Transaction pooler (6543) — both failed identically, ruling out a
+  pooler-mode-specific cache.
+- Confirmed Direct connection fails on DNS/IPv6 for this network (known,
+  unrelated — same as dev).
+- Reset the password multiple times via Supabase's official "Reset
+  database password" UI (confirmed via direct question — not a SQL
+  command, not accidentally resetting `tangoops_app` again).
+- Confirmed the new password was plain alphanumeric (no special
+  characters needing URL-encoding) by having the user check its shape
+  without sharing it — ruled out an encoding issue. (The actual password
+  did end up posted in chat during this process — treat it as compromised
+  regardless of "ignore security for now"; rotate it again once things are
+  stable.)
+- Attempted `ALTER ROLE postgres WITH PASSWORD ...` directly in the SQL
+  Editor as a bypass — blocked by Postgres/Supabase itself: `ERROR: 42501:
+  permission denied to alter role — Only superusers can alter privileged
+  roles`. Confirms Supabase reserves the `postgres` role's password
+  changes to its own dashboard control plane; even the SQL Editor's session
+  isn't a true superuser for this specific purpose.
+
+**Root cause (working theory, matches the fix):** A genuine Supabase-side
+sync gap between the `postgres` role's actual password and what the
+pooler (Supavisor) was authenticating connections against — a known
+category of issue with managed Postgres poolers occasionally not picking
+up a credential change cleanly. This exact process had worked fine for
+prod's *first* migration earlier the same day, so something changed
+in between, not a mistake in how the connection was being built.
+
+**Fix:** restarted the Supabase project (Project Settings → General →
+Restart project) and rebooted the Streamlit Cloud app. Migration succeeded
+immediately after, using the exact same connection string and password
+that had failed repeatedly before the restart.
+
+**Lesson for next time this happens:** if a freshly-reset, correctly
+formatted admin password keeps failing across both pooler modes with no
+other explanation, a project restart is a legitimate, fairly low-risk next
+step (brief connection drop, app recovers or needs a manual reboot) —
+don't keep resetting the password indefinitely, that wasn't the actual
+problem here.
+
+**Status:** Resolved. `roles`, `permissions`, `role_permissions` tables now
+exist on prod. Next: grant script.
