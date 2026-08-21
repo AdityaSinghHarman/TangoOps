@@ -545,4 +545,54 @@ one row per (role, permission) pair from the seed list above — all
 enforced by foreign keys, so a typo in either seed list would fail the
 migration loudly rather than silently insert bad data.
 
-**Status:** Implemented, compiled, reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, reviewed, pushed to dev (`446f4c5`).
+
+---
+
+## 2026-08-22 — Phase 3a: `run_migrations.py` against dev, another admin-vs-restricted-role mix-up
+
+**What happened:** Two attempts used `tangoops_app`'s connection string
+(the restricted app role) instead of the admin `postgres` account —
+`run_migrations.py` correctly refuses to run against a non-admin role
+rather than silently failing partway through a schema change. Same
+category of mix-up as earlier today's password/role confusion — worth
+double-checking which of the two accounts (`postgres` for schema changes,
+`tangoops_app` for the app itself) a connection string belongs to before
+pasting it anywhere.
+
+**Expected result:** `StreamOperiq database migration completed
+successfully.`
+
+**Actual result:** Confirmed by the user — succeeded once the correct
+admin connection string was used.
+
+**Status:** Done. `roles`, `permissions`, `role_permissions` tables now
+exist on dev, seeded. Next: grant script.
+
+---
+
+## 2026-08-22 — Phase 3a: grant script succeeded against dev
+
+**Expected result:** No error; final SELECT returns `tangoops_app` with
+every privilege flag `false`.
+
+**Actual result:** Confirmed by the user — matched exactly.
+
+**Status:** Done. `tangoops_app` now has access to `roles`, `permissions`,
+`role_permissions` on dev. Next: verify the actual seed data landed
+correctly (row counts, foreign keys) via Table Editor.
+
+---
+
+## 2026-08-22 — Phase 3a: seed data verified correct on dev
+
+**Expected result:** `roles_count = 8`, `permissions_count = 17`,
+`role_permissions_count = 35`.
+
+**Actual result:** Exact match — `8, 17, 35`.
+
+**Status: Phase 3a — fully verified in dev.** Schema, grants, and seed data
+all confirmed correct. Nothing in the app reads any of it yet, so there's
+no login/UI behavior to test this time — the verification is the row
+counts themselves. Ready for a prod-push decision (zero behavior risk,
+same reasoning as Phase 2's schema-only commits).
