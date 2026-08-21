@@ -9,7 +9,8 @@
 -- conditional specifically so the whole file can be re-run without erroring
 -- on "role already exists" once the role has been created once.
 -- 21 Aug 2026: added 'memberships' (was missed when that table was first
--- added) and 'subscriptions'.
+-- added) and 'subscriptions'. 22 Aug 2026: added 'roles', 'permissions',
+-- 'role_permissions' (Phase 3, schema/seed only).
 
 DO $$
 BEGIN
@@ -37,7 +38,8 @@ DECLARE
     table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'businesses', 'users', 'memberships', 'subscriptions', 'agencies', 'raw_uploads',
+        'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
+        'role_permissions', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP

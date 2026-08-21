@@ -515,3 +515,34 @@ prod.**
 `memberships.expires_at`, the hardened `current_user_context()`, and the
 database-role fix are all live on both dev and prod. Next: Phase 3 (Roles &
 permissions), per the blueprint's Section 12.
+
+---
+
+## 2026-08-22 — Phase 3a: roles/permissions schema + seed data (safe, additive)
+
+**Scope decision:** `is_owner` alone is referenced 34 times across
+`app.py`, `is_sub_agency` 5 times, `is_platform_admin` 4 times — but most of
+those are cosmetic (labels, column choices), not real access-control gates.
+Mass-rewriting all of them in one pass is real surgery on the app's actual
+security logic, spread across a 3,320-line file, with no way to click
+through the running app to verify each change before it ships. Splitting
+Phase 3 in two: 3a (this entry) is schema + seed data only, zero risk,
+same pattern as Phase 2's DB work. The actual `app.py` migration (3b) is a
+separate, deliberately deferred pass.
+
+**What was done:** Added `roles`, `permissions`, `role_permissions` tables.
+Seeded 8 roles (matching Section 03 of the blueprint) and 17 permission
+keys grounded in the app's real pages/actions (not abstract CRUD verbs),
+with a `role_permissions` mapping per role. Added `get_roles()`,
+`get_permissions()`, `get_role_permissions()`, and `has_permission()` to
+`store.py` — none of them called from `app.py` yet. Extended the grant
+script and both database verification scripts to cover the 3 new tables.
+
+**Expected result:** Zero behavior change anywhere in the running app —
+these tables are pure additive schema/data that nothing reads yet. After
+migrating: `roles` has 8 rows, `permissions` has 17, `role_permissions` has
+one row per (role, permission) pair from the seed list above — all
+enforced by foreign keys, so a typo in either seed list would fail the
+migration loudly rather than silently insert bad data.
+
+**Status:** Implemented, compiled, reviewed. Not yet pushed to dev.

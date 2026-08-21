@@ -17,7 +17,8 @@ from urllib.parse import quote, urlparse, urlunparse
 import psycopg2
 
 TABLES = (
-    "businesses", "users", "memberships", "subscriptions", "agencies", "raw_uploads",
+    "businesses", "users", "memberships", "subscriptions", "roles", "permissions",
+    "role_permissions", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )

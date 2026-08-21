@@ -52,6 +52,20 @@ def main():
                 "VALUES (%s,'growth','annual','trialing',false)",
                 (business_id,),
             )
+            role_code = f"{marker}_role"
+            permission_key = f"{marker}.permission"
+            cur.execute(
+                "INSERT INTO roles (code, name, description) VALUES (%s,%s,%s)",
+                (role_code, marker, "transaction-only-test"),
+            )
+            cur.execute(
+                "INSERT INTO permissions (key, description, category) VALUES (%s,%s,%s)",
+                (permission_key, "transaction-only-test", marker),
+            )
+            cur.execute(
+                "INSERT INTO role_permissions (role_code, permission_key) VALUES (%s,%s)",
+                (role_code, permission_key),
+            )
             cur.execute(
                 "INSERT INTO agencies (business_id, agency_name, commission_pct) VALUES (%s,%s,5)",
                 (business_id, marker),

@@ -14,6 +14,13 @@ Tables (created through the administrator-only migration command):
   subscriptions     one row per business: its current plan/billing state.
                      Schema only for now (no app wiring) — added early to
                      carry a one-time annual purchase (auto_renew=false)
+  roles             the 8 named roles (Phase 3). Schema + seed data only —
+                     app.py still branches on is_owner/is_sub_agency/
+                     is_platform_admin, not this table, until the app.py
+                     migration pass (see PHASE_LOG.md)
+  permissions       atomic capabilities (e.g. 'broadcaster.upload')
+  role_permissions  which permissions each role has; has_permission() reads
+                     this but nothing calls it yet
   agencies          sub-agency names, per business
   raw_uploads       every uploaded period's broadcaster stats, per business
   assignments       permanent profile_url -> sub_agency mapping, per business
@@ -115,6 +122,100 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     CONSTRAINT subscriptions_status_valid
         CHECK (status IN ('trialing', 'active', 'grace', 'restricted', 'cancelled', 'expired'))
 );
+
+-- Phase 3 (Roles & permissions), schema + seed data only for now — nothing
+-- in app.py reads these tables yet, so seeding them here changes no runtime
+-- behavior. `roles.code`/`permissions.key` reuse the same plain-text role
+-- values already stored in users.role/memberships.role (e.g. 'owner',
+-- 'sub_agency') rather than a surrogate ID, so no existing row needs
+-- rewriting when this catalog is introduced.
+CREATE TABLE IF NOT EXISTS roles (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS permissions (
+    key TEXT PRIMARY KEY,
+    description TEXT,
+    category TEXT
+);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_code TEXT NOT NULL REFERENCES roles(code),
+    permission_key TEXT NOT NULL REFERENCES permissions(key),
+    PRIMARY KEY (role_code, permission_key)
+);
+
+INSERT INTO roles (code, name, description) VALUES
+    ('platform_admin', 'SaaS Super Admin', 'Entire platform, all tenants, billing, plans, and role definitions.'),
+    ('support_admin', 'Platform Support Admin', 'Platform-wide, read-mostly, time-boxed impersonation for support.'),
+    ('owner', 'Agency Owner', 'Full control of one tenant, including billing and plan.'),
+    ('agency_manager', 'Agency Manager', 'Operational tier under Owner; everything except billing/plan.'),
+    ('sub_agency', 'Recruiter / Sub-Agency', 'Own assigned broadcasters only.'),
+    ('broadcaster', 'Broadcaster', 'Own performance only, plan-gated dashboard access.'),
+    ('auditor', 'Read-only / Auditor', 'Compliance/finance, configurable scope, no write access.'),
+    ('trial_viewer', 'Trial Viewer', 'Time-boxed demo/trial access, read-only, no export.')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO permissions (key, description, category) VALUES
+    ('platform.manage_businesses', 'Create, suspend, rename, or delete tenants', 'platform'),
+    ('platform.view_all_activity', 'View cross-tenant platform activity and billing status', 'platform'),
+    ('platform.impersonate', 'Time-boxed, audited impersonation of a tenant login', 'platform'),
+    ('agency.view_dashboard', 'View the tenant dashboard and reports', 'agency'),
+    ('agency.manage_profile', 'Edit agency profile and commission rates', 'agency'),
+    ('agency.create_sub_agency', 'Create new sub-agencies within a tenant', 'agency'),
+    ('agency.manage_users', 'Invite/suspend users within a tenant (subject to role-hierarchy rules)', 'agency'),
+    ('agency.manage_billing', 'View and change the tenant''s own plan/subscription', 'agency'),
+    ('broadcaster.view', 'View the full tenant-wide broadcaster list and dashboard', 'broadcaster'),
+    ('broadcaster.view_own_only', 'View only broadcasters/data assigned to or owned by this login', 'broadcaster'),
+    ('broadcaster.assign', 'Assign broadcasters to a sub-agency', 'broadcaster'),
+    ('broadcaster.upload', 'Upload monthly/daily broadcaster report CSVs', 'broadcaster'),
+    ('broadcaster.manage_payouts', 'Manage broadcaster payout rules and mark payouts paid', 'broadcaster'),
+    ('data.manage', 'Archive/manage uploaded periods (Data Management page)', 'data'),
+    ('report.export', 'Export reports/data in the formats the plan allows', 'data'),
+    ('audit.view', 'View security/audit history', 'data'),
+    ('profile.manage', 'Manage own display name/avatar', 'profile')
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO role_permissions (role_code, permission_key) VALUES
+    ('platform_admin', 'platform.manage_businesses'),
+    ('platform_admin', 'platform.view_all_activity'),
+    ('platform_admin', 'profile.manage'),
+    ('support_admin', 'platform.view_all_activity'),
+    ('support_admin', 'platform.impersonate'),
+    ('support_admin', 'profile.manage'),
+    ('owner', 'agency.view_dashboard'),
+    ('owner', 'agency.manage_profile'),
+    ('owner', 'agency.create_sub_agency'),
+    ('owner', 'agency.manage_users'),
+    ('owner', 'agency.manage_billing'),
+    ('owner', 'broadcaster.view'),
+    ('owner', 'broadcaster.assign'),
+    ('owner', 'broadcaster.upload'),
+    ('owner', 'broadcaster.manage_payouts'),
+    ('owner', 'data.manage'),
+    ('owner', 'report.export'),
+    ('owner', 'profile.manage'),
+    ('agency_manager', 'agency.view_dashboard'),
+    ('agency_manager', 'agency.manage_users'),
+    ('agency_manager', 'broadcaster.view'),
+    ('agency_manager', 'broadcaster.assign'),
+    ('agency_manager', 'broadcaster.upload'),
+    ('agency_manager', 'report.export'),
+    ('agency_manager', 'profile.manage'),
+    ('sub_agency', 'broadcaster.view_own_only'),
+    ('sub_agency', 'profile.manage'),
+    ('broadcaster', 'broadcaster.view_own_only'),
+    ('broadcaster', 'profile.manage'),
+    ('auditor', 'agency.view_dashboard'),
+    ('auditor', 'audit.view'),
+    ('auditor', 'report.export'),
+    ('auditor', 'profile.manage'),
+    ('trial_viewer', 'agency.view_dashboard'),
+    ('trial_viewer', 'broadcaster.view')
+ON CONFLICT (role_code, permission_key) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS agencies (
     business_id TEXT,
@@ -254,7 +355,8 @@ DO $$
 DECLARE table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'businesses', 'users', 'memberships', 'subscriptions', 'agencies', 'raw_uploads',
+        'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
+        'role_permissions', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status'
     ] LOOP
@@ -270,7 +372,8 @@ END $$;
 """
 
 RUNTIME_TABLES = (
-    "businesses", "users", "memberships", "subscriptions", "agencies", "raw_uploads",
+    "businesses", "users", "memberships", "subscriptions", "roles", "permissions",
+    "role_permissions", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status",
 )
@@ -576,6 +679,33 @@ def set_membership_status(business_id: str, username: str, status: str):
         "UPDATE memberships SET status=%s WHERE business_id=%s AND lower(trim(username))=%s",
         (status, business_id, _normalize_username(username)),
     )
+
+
+# ---------------- roles & permissions (Phase 3, schema/seed only — see PHASE_LOG.md) ----------------
+
+def get_roles() -> pd.DataFrame:
+    return _query("SELECT code, name, description FROM roles ORDER BY code")
+
+
+def get_permissions() -> pd.DataFrame:
+    return _query("SELECT key, description, category FROM permissions ORDER BY category, key")
+
+
+def get_role_permissions() -> pd.DataFrame:
+    """Every (role_code, permission_key) pair. Cheap to load in full and
+    check in memory, the same pattern as memberships — this table is small
+    and changes rarely."""
+    return _query("SELECT role_code, permission_key FROM role_permissions")
+
+
+def has_permission(role_code: str, permission_key: str) -> bool:
+    """Not yet called from app.py — the accessor Phase 3's app.py migration
+    will use in place of is_owner/is_sub_agency/is_platform_admin checks."""
+    df = _query(
+        "SELECT 1 FROM role_permissions WHERE role_code=%s AND permission_key=%s",
+        (role_code, permission_key),
+    )
+    return not df.empty
 
 
 def log_security_event(event_type: str, actor_username: str = "", actor_role: str = "",
