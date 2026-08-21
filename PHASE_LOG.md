@@ -1233,3 +1233,21 @@ entitlements_count 0` — exact match to expected.
 
 **Status: Phase 4a — done, verified in dev.** Ready for prod, same
 rollout pattern as every prior schema-only slice.
+
+---
+
+## 2026-08-22 — Phase 4a fully verified on prod too
+
+**Actual result:** `plans_count 5, plan_features_count 60,
+entitlements_count 0` — exact match, same as dev.
+
+**Status: Phase 4a — done. Live and verified on both dev and prod.**
+`main` and `dev` both at commit `c5c9704`. `plans`, `plan_features`,
+`entitlements`, and `has_feature()` all exist and are correct on both
+environments; nothing in the running app reads any of it yet.
+
+**Next up: Phase 4b — wiring real features to `has_feature()`.** Natural
+first candidates, each its own testable slice like Phase 3b's roles were:
+`broadcaster_dashboard_access` (gates the Statistics page), `exports`
+(extends the `can_export`/download-button work from Trial Viewer),
+`ai_features`, `upload_frequency`, `broadcaster_limit`. Not started.
