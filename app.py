@@ -739,6 +739,18 @@ def load_broadcaster_dashboard_access(biz_id):
     return value if value not in (None, "off") else "off"
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_pdf_export_enabled(biz_id):
+    """Phase 4b, third slice: Section 04's `exports` feature has no `off`
+    tier - every plan includes CSV ('csv'). The differentiator is PDF
+    ('csv_pdf', Growth+) and scheduled export ('csv_pdf_scheduled',
+    Network only - the scheduling mechanism itself doesn't exist yet and
+    is out of scope for this slice, same as the dashboard-access tier
+    split). This only checks whether PDF is available at all."""
+    value = store.has_feature(biz_id, "exports")
+    return value in ("csv_pdf", "csv_pdf_scheduled")
+
+
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
@@ -1680,6 +1692,7 @@ elif st.session_state.page == "MyProfile":
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":
     ai_enabled = load_ai_features_enabled(business_id)
+    pdf_export_enabled = load_pdf_export_enabled(business_id)
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     overview_title = "My Dashboard" if can_view_full_tenant else f"{html.escape(str(user_agency))} overview"
     overview_subtitle = (f"Performance across {html.escape(str(business_name))}'s agency network" if can_view_full_tenant
@@ -2031,6 +2044,16 @@ elif st.session_state.page == "Admin":
                     file_name=f"commission_statement_{user_agency}_{current_period}.csv",
                     mime="text/csv", width="stretch",
                 )
+                if pdf_export_enabled:
+                    st.download_button(
+                        "Download commission statement (PDF)",
+                        utils.safe_pdf_bytes(
+                            statement, "Commission Statement",
+                            f"{html.escape(str(user_agency))} — {current_period}",
+                        ),
+                        file_name=f"commission_statement_{user_agency}_{current_period}.pdf",
+                        mime="application/pdf", width="stretch",
+                    )
     with outlook_right:
         if can_view_full_tenant:
             comparison_rows = []
@@ -2179,6 +2202,7 @@ elif st.session_state.page == "Statistics":
     if not can_view_full_tenant:
         st.error("Owner, Agency Manager, or Auditor access only.")
         st.stop()
+    pdf_export_enabled = load_pdf_export_enabled(business_id)
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="overview-hero"><div><div class="overview-eyebrow">Agency analytics</div>
@@ -2351,6 +2375,15 @@ elif st.session_state.page == "Statistics":
             "Download broadcaster report", utils.safe_csv_bytes(view[show_cols]),
             file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
         )
+        if pdf_export_enabled and len(view) <= utils.MAX_PDF_ROWS:
+            st.download_button(
+                "Download broadcaster report (PDF)",
+                utils.safe_pdf_bytes(
+                    view[show_cols], "Broadcaster Report",
+                    f"{html.escape(str(business_name))} — {current_period}",
+                ),
+                file_name=f"broadcaster_dashboard_{current_period}.pdf", mime="application/pdf",
+            )
     broadcaster_directory_panel.__exit__(None, None, None)
 
 # =============================================================== AUDIT LOG
@@ -2376,6 +2409,7 @@ elif st.session_state.page == "Payouts":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
+    pdf_export_enabled = load_pdf_export_enabled(business_id)
 
     payout_notice = st.session_state.pop("_payout_notice", None)
     if payout_notice:
@@ -2554,6 +2588,17 @@ elif st.session_state.page == "Payouts":
                 file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
                 width="stretch", icon=":material/download:", key="payout_export_summary",
             )
+            if pdf_export_enabled and len(statement_export) <= utils.MAX_PDF_ROWS:
+                st.download_button(
+                    "Export Statement (PDF)",
+                    utils.safe_pdf_bytes(
+                        statement_export, "Broadcaster Payout Statement",
+                        f"{html.escape(str(business_name))} — {current_period}",
+                    ),
+                    file_name=f"broadcaster_payout_statement_{current_period}.pdf",
+                    mime="application/pdf", width="stretch",
+                    icon=":material/download:", key="payout_export_summary_pdf",
+                )
 
     with rule_col:
         with st.container(border=True):
@@ -2685,6 +2730,16 @@ elif st.session_state.page == "Payouts":
         file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
         icon=":material/download:", key="payout_export_statement",
     )
+    if pdf_export_enabled and len(payout_rows) <= utils.MAX_PDF_ROWS:
+        st.download_button(
+            "Download PDF Statement",
+            utils.safe_pdf_bytes(
+                payout_rows[statement_columns], "Broadcaster Payout Statement",
+                f"{html.escape(str(business_name))} — {current_period}",
+            ),
+            file_name=f"broadcaster_payout_statement_{current_period}.pdf", mime="application/pdf",
+            icon=":material/download:", key="payout_export_statement_pdf",
+        )
     payout_statements_panel.__exit__(None, None, None)
 
     payout_history_panel = dashboard_panel("payout_dashboard", "History")
@@ -2871,6 +2926,7 @@ elif st.session_state.page == "SubAgencies":
     if not is_owner:
         st.error("Owner access only.")
         st.stop()
+    pdf_export_enabled = load_pdf_export_enabled(business_id)
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="overview-hero"><div><div class="overview-eyebrow">Recruitment analytics</div>
@@ -3108,6 +3164,16 @@ elif st.session_state.page == "SubAgencies":
             "Download recruiter statement", utils.safe_csv_bytes(statement),
             file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.csv", mime="text/csv",
         )
+        if pdf_export_enabled and len(statement) <= utils.MAX_PDF_ROWS:
+            st.download_button(
+                "Download recruiter statement (PDF)",
+                utils.safe_pdf_bytes(
+                    statement, "Recruiter Statement",
+                    f"{html.escape(str(selected_recruiter))} — {current_period}",
+                ),
+                file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.pdf",
+                mime="application/pdf",
+            )
     else:
         st.info("No Sub-Agency roster is available yet.")
     recruiter_roster_panel.__exit__(None, None, None)

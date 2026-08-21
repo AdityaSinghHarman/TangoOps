@@ -114,6 +114,80 @@ def safe_csv_bytes(df: pd.DataFrame) -> bytes:
     return safe.to_csv(index=False).encode("utf-8-sig")
 
 
+MAX_PDF_ROWS = 2_000
+
+
+def safe_pdf_bytes(df: pd.DataFrame, title: str, subtitle: str = "") -> bytes:
+    """Render a DataFrame as a branded, paginated PDF table report.
+
+    Growth-plan-and-above alternative to safe_csv_bytes - same data, a
+    presentable layout for sharing outside the dashboard. Row count is
+    capped independently of MAX_CSV_ROWS: a PDF table becomes unreadable
+    long before it hits a spreadsheet's row limits.
+    """
+    import io as _io
+    from html import escape as html_escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    if len(df) > MAX_PDF_ROWS:
+        raise ValueError(f"The PDF has too many rows. Maximum allowed is {MAX_PDF_ROWS:,}.")
+
+    brand = colors.HexColor("#211A4A")
+    row_alt = colors.HexColor("#F5F5FA")
+    grid = colors.HexColor("#DDDDDD")
+
+    buffer = _io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=16 * mm, rightMargin=16 * mm, topMargin=16 * mm, bottomMargin=16 * mm,
+        title=title,
+    )
+    styles = getSampleStyleSheet()
+    elements = [Paragraph(title, styles["Title"])]
+    if subtitle:
+        elements.append(Paragraph(subtitle, styles["Normal"]))
+    elements.append(Spacer(1, 10))
+
+    # Cells are wrapped Paragraphs on a fixed, evenly-split column width -
+    # not plain strings - so a long broadcaster name or profile URL wraps
+    # onto a second line instead of silently overflowing the page width
+    # (which reportlab won't catch as an error; it just clips or overlaps).
+    cell_style = ParagraphStyle("cell", fontName="Helvetica", fontSize=7.5, leading=9)
+    header_style = ParagraphStyle("cell_header", parent=cell_style, textColor=colors.white,
+                                   fontName="Helvetica-Bold")
+
+    def _cell(value, style):
+        text = "" if pd.isna(value) else html_escape(str(value))
+        return Paragraph(text, style)
+
+    header = [_cell(str(c).replace("_", " ").title(), header_style) for c in df.columns]
+    body = [[_cell(v, cell_style) for v in row] for row in df.itertuples(index=False, name=None)]
+    available_width = landscape(A4)[0] - 32 * mm
+    col_width = available_width / max(1, len(df.columns))
+    table = Table([header] + body, repeatRows=1, colWidths=[col_width] * len(df.columns))
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), brand),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+        ("GRID", (0, 0), (-1, -1), 0.25, grid),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, row_alt]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(table)
+    doc.build(elements)
+    return buffer.getvalue()
+
+
 def merge_assignments(stats_df: pd.DataFrame, assignments_df: pd.DataFrame) -> pd.DataFrame:
     """Attach a permanent recruitment source using the broadcaster profile URL."""
     out = stats_df.copy()

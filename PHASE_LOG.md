@@ -1397,3 +1397,114 @@ reappeared after a temporary `growth` plan assignment). Result: **tested
 as expected.** Pushed to `main` at commit `83fe5db` (fast-forward from
 `81518b3`), tested on prod 2026-08-22: **tested as expected.** **Live and
 verified on both dev and prod.**
+
+---
+
+## Phase 4b: `exports` slice deliberately skipped (not a wiring gap, a missing feature)
+
+**Investigated, not implemented.** Before starting, checked what
+`exports` actually gates: `plan_features` has `essential = 'csv'`,
+`growth`/`scale`/`pioneer` = `'csv_pdf'`, `network` = `'csv_pdf_scheduled'`.
+Unlike `ai_features` and `broadcaster_dashboard_access`, there is no
+`off` tier here — every plan already includes CSV export.
+
+Checked every `st.download_button` call site in `app.py` (5 total) —
+all of them produce CSV only. There is no PDF export anywhere in the
+codebase, and no scheduled-export mechanism. So there's nothing for a
+plan gate to hide: the differentiator this feature key is meant to
+control (PDF, and scheduled exports) doesn't exist yet as a feature.
+
+**Open question, not yet decided (as of 2026-08-22): whether PDF export
+gets built as a real feature at all.** Initial lean was to skip this
+slice since wiring `has_feature(business_id, 'exports')` today would
+either be a no-op (CSV stays available to everyone regardless) or require
+building an entire new PDF-export feature from scratch just to gate it —
+out of scope for a Phase 4b "wiring" slice. But the user flagged this
+isn't settled — still weighing whether to add PDF export as a product
+feature before deciding how (or whether) to gate it. Revisit once that
+product decision is made: if PDF export gets built, gate it behind
+Growth+ the same way `ai_features`/`broadcaster_dashboard_access` were
+gated; if not, `exports` stays a no-op feature key indefinitely.
+
+**Status:** Not started — blocked on an undecided product question, not
+an implementation detail.
+
+---
+
+## Phase 4b, third slice: PDF export built and gated behind `exports` (Growth+)
+
+**Follow-up to the earlier "skip for now" entry** — on reflection the
+decision to skip wasn't settled, so this slice builds real PDF export
+rather than deferring it further.
+
+**New dependency:** `reportlab==4.5.1` added to `requirements.txt`.
+Chosen over `weasyprint` (needs system Cairo/Pango packages, riskier on
+Streamlit Cloud) and over the newly-released `reportlab` 5.x (stayed on
+the more field-tested 4.x line for a first production PDF feature).
+Verified installed cleanly in the project's `.venv` and confirmed real
+PDF bytes come out (`%PDF-` header, valid multi-page layout) — not just
+that `py_compile` passed.
+
+**What was done:**
+- `utils.safe_pdf_bytes(df, title, subtitle="")` — branded (StreamOperiq
+  navy header row), paginated table report. Cells are wrapped
+  `Paragraph`s on a fixed, evenly-split column width (not plain strings)
+  so a long broadcaster name or profile URL wraps onto a second line
+  instead of silently overflowing the page — tested directly with a
+  12-column, 50-row table containing long names/URLs and `&`/`<`/`>`
+  characters (HTML-escaped before wrapping in Paragraph markup) to
+  confirm no layout error and correct escaping. `MAX_PDF_ROWS = 2_000`,
+  separate from `MAX_CSV_ROWS` — a PDF table becomes unreadable well
+  before a spreadsheet's row ceiling.
+- `load_pdf_export_enabled(business_id)` (cached ttl=30) — resolves
+  Section 04's `exports` tier (`csv`/`csv_pdf`/`csv_pdf_scheduled`) and
+  returns whether PDF is available at all (`csv_pdf` or
+  `csv_pdf_scheduled`). Only distinguishes PDF-available vs not — the
+  scheduled-export *mechanism* for Network doesn't exist yet and is out
+  of scope for this slice, same reasoning as the tier deferrals in the
+  previous two slices.
+- Added a "(PDF)" download button next to all five existing
+  `st.download_button` CSV export sites, each gated by
+  `pdf_export_enabled` and (where the underlying table could plausibly
+  be large - broadcaster directory, payout statements) an additional
+  `len(df) <= utils.MAX_PDF_ROWS` guard so a huge roster degrades to
+  CSV-only instead of raising: commission statement (Admin/Sub-Agency),
+  broadcaster report (Statistics), payout Export Statement + Statements
+  panel (Payouts, x2), recruiter statement (SubAgencies).
+- Existing role/page gates (`is_sub_agency`, `can_export`, `is_owner`)
+  left untouched — the PDF button is layered on top of them, same
+  pattern as the other two slices.
+
+**Important thing to know before testing**: same as the other two
+slices - no business has a `subscriptions` row yet, so every existing
+business defaults to `essential`/`csv`-only. **No PDF button should
+appear anywhere for an existing test business immediately after
+deploy** - this is expected, not a bug.
+
+**Expected result:**
+1. **Immediately after deploy, any existing test business**: every one
+   of the five export locations shows only the CSV download button, no
+   PDF button.
+2. **After giving a test business a non-essential plan**: a "(PDF)"
+   button appears alongside each CSV button; clicking it downloads a
+   real, readable PDF with the same data, a StreamOperiq-branded header,
+   and correct pagination for larger tables.
+
+**How to verify:**
+```sql
+-- confirm the "off" state first (should already be true for any business):
+-- log in as Owner, check all five export locations show CSV-only.
+
+-- then give one test business a plan with PDF export on:
+INSERT INTO subscriptions (business_id, plan_code, billing_cycle, status, auto_renew)
+VALUES ('<business_id>', 'growth', 'annual', 'active', false)
+ON CONFLICT (business_id) DO UPDATE SET plan_code = 'growth';
+-- reload after the 30s cache expires - PDF buttons should appear at all five locations.
+
+-- revert when done:
+DELETE FROM subscriptions WHERE business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed, PDF generation tested
+directly against realistic data shapes for all five export sites (not
+just via the app). Not yet pushed to dev.
