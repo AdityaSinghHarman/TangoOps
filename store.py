@@ -653,7 +653,7 @@ def get_memberships(username: str) -> pd.DataFrame:
     active row; ordering by created_at desc anticipates a future login
     holding more than one without changing behavior for anyone who doesn't."""
     return _query(
-        "SELECT business_id, role, sub_agency, status, created_at FROM memberships "
+        "SELECT business_id, role, sub_agency, status, expires_at, created_at FROM memberships "
         "WHERE lower(trim(username))=%s ORDER BY created_at DESC",
         (_normalize_username(username),),
     )
@@ -661,8 +661,8 @@ def get_memberships(username: str) -> pd.DataFrame:
 
 def get_all_memberships() -> pd.DataFrame:
     return _query(
-        "SELECT business_id, username, role, sub_agency, status, invited_by, created_at "
-        "FROM memberships ORDER BY created_at"
+        "SELECT business_id, username, role, sub_agency, status, invited_by, "
+        "expires_at, created_at FROM memberships ORDER BY created_at"
     )
 
 

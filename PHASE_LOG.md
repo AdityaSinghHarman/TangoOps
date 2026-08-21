@@ -921,3 +921,76 @@ and prod.** `main` and `dev` both at commit `a2ca33a`. Remaining Phase 3b
 work: Trial Viewer's `expires_at` enforcement (next), then Broadcaster
 (biggest lift — needs actual broadcaster login accounts, which don't
 exist at all today).
+
+---
+
+## 2026-08-22 — Phase 3b, third slice: Trial Viewer's expiry actually enforced
+
+**What was done:**
+- `store.get_all_memberships()` and `get_memberships()` now select
+  `expires_at` — they didn't before, so nothing could check it even though
+  the column has existed since Phase 2.
+- `current_user_context()` now filters out any membership row where
+  `expires_at` is in the past, treating it exactly like an inactive
+  membership (same generic "session no longer valid" message — a lapsed
+  trial account gets no special message hinting that the access was
+  time-limited rather than simply revoked).
+- Added `is_trial_viewer` and `can_view_full_tenant` now includes it
+  alongside Owner/Manager/Auditor.
+- Added `can_export = not is_trial_viewer` and gated the one reachable,
+  previously-ungated `st.download_button` (the Statistics page's broadcaster
+  report) behind it. (Two other download buttons found in the codebase are
+  on Payouts/SubAgencies, which Trial Viewer has no page access to at all —
+  nothing to gate there.)
+- **Caught a second export surface while checking**: `st.dataframe()` has
+  its own built-in toolbar with a CSV download icon, entirely separate from
+  explicit `download_button` calls — gating the buttons alone wouldn't have
+  been enough. Added conditional CSS (only injected `if is_trial_viewer`)
+  hiding that toolbar. **This one genuinely needs visual confirmation in
+  dev** — it's a CSS selector guess at Streamlit's current toolbar
+  test-id(s), not something provable from reading the code alone the way
+  everything else in this entry is.
+- `allowed_pages_by_role["trial_viewer"]` = Admin, Statistics, Broadcasters,
+  BroadcasterDetail, MyProfile — same visual surface as Owner (Section 15),
+  no AuditLog (not in scope), no write pages at all.
+
+**Known gap, not fixed in this pass:** the User Access page's "Existing
+Users" list reads `users.role`/`users.business_id` directly
+(`store.get_users()`), not `memberships`. A test account promoted via
+`UPDATE memberships SET role = 'trial_viewer'` will correctly log in and
+behave as Trial Viewer, but will still show its old role label in that
+list, since only login resolution was ever migrated to read through
+`memberships` (Phase 2) — everywhere else in `app.py` that touches
+`users.role` directly was out of scope for that migration. Cosmetic only;
+doesn't affect actual access control.
+
+**No UI to grant Trial Viewer access yet.** Testing it is one step more
+involved than Manager/Auditor, which just needed a `memberships.role`
+update on an existing account — Trial Viewer additionally needs
+`expires_at` set, and ideally a fresh test account rather than reusing one
+that's actively used for other role tests.
+
+**Expected result — two scenarios to test:**
+1. **Not-yet-expired grant**: promote a test account with `expires_at` a
+   few days in the future. Login should succeed; sidebar shows exactly
+   Admin/Statistics/Broadcasters/MyProfile (no Assign, Upload, User Access,
+   AuditLog, or anything else); full tenant view on those pages; **no
+   download button visible on Statistics**; **no CSV icon visible in any
+   dataframe's toolbar anywhere** (the part needing visual confirmation).
+2. **Expired grant**: promote a test account with `expires_at` already in
+   the past. Login should be **denied** with the same generic "session no
+   longer valid" message every other denied login gets.
+
+**How to verify:**
+```sql
+UPDATE memberships SET role = 'trial_viewer', expires_at = now() + interval '5 days'
+WHERE username = '<username>' AND business_id = '<business_id>';
+-- test scenario 1, then:
+UPDATE memberships SET expires_at = now() - interval '1 day'
+WHERE username = '<username>' AND business_id = '<business_id>';
+-- test scenario 2 (log out and back in), then revert:
+UPDATE memberships SET role = 'sub_agency', expires_at = NULL
+WHERE username = '<username>' AND business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.

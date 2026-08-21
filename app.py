@@ -849,6 +849,15 @@ def current_user_context():
     database/restricted_role_setup.sql has granted it. Either way this is a
     zero-downtime safety net for deploy ordering, not a normal or permanent
     path.
+
+    Also enforces `memberships.expires_at` — NULL for every normal role
+    (never expires), set only for a time-boxed grant like Trial Viewer
+    (Section 15 of the SaaS blueprint). An expired row is treated exactly
+    like an inactive one: excluded here, which surfaces as the same
+    "session no longer valid" message every other denied login gets. There
+    is deliberately no separate "your trial has ended" message — that would
+    tell an expired viewer their access was time-limited rather than simply
+    revoked, which isn't information worth giving away.
     """
     if username == bootstrap_username:
         return "platform_admin", None, None
@@ -864,17 +873,22 @@ def current_user_context():
         memberships_df = pd.DataFrame()
     if not memberships_df.empty:
         normalized_member_usernames = memberships_df["username"].astype(str).str.strip().str.lower()
+        not_expired = (
+            memberships_df["expires_at"].isna()
+            | (memberships_df["expires_at"] > dt.datetime.utcnow())
+        )
         member_rows = memberships_df[
             (normalized_member_usernames == username)
             & (memberships_df["status"] == "Active")
             & (memberships_df["business_id"].isin(active_business_ids))
+            & not_expired
         ]
         if not member_rows.empty:
             # A login holds exactly one active membership today; switching
             # between multiple is future scope (not built), so the most
             # recently created row is simply the default.
             r = member_rows.sort_values("created_at", ascending=False).iloc[0]
-            if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor"):
+            if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor", "trial_viewer"):
                 return None, None, None
             return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
 
@@ -904,17 +918,36 @@ is_owner = user_role == "owner"
 is_manager = user_role == "agency_manager"
 is_sub_agency = user_role == "sub_agency"
 is_auditor = user_role == "auditor"
+is_trial_viewer = user_role == "trial_viewer"
 # Agency Manager sees everything Owner sees except billing/plan (not built yet)
 # and a handful of Owner-exclusive actions (Section 03 of the SaaS blueprint):
 # creating sub-agencies, editing commission rates, payouts, and data archival.
-# Used specifically for pages/actions Manager can DO but Auditor (read-only,
-# zero write rights) cannot - Assign, Upload, User Access.
+# Used specifically for pages/actions Manager can DO but Auditor/Trial Viewer
+# (zero write rights) cannot - Assign, Upload, User Access.
 is_owner_or_manager = is_owner or is_manager
-# Auditor sees the same full-tenant view as Owner/Manager on every page that
-# is pure viewing (dashboard, Statistics, Broadcasters, BroadcasterDetail) -
-# just never anything with a write action. Broader than is_owner_or_manager
-# on purpose: use this one, not that one, for view-only "full tenant" checks.
-can_view_full_tenant = is_owner or is_manager or is_auditor
+# Auditor and Trial Viewer both see the same full-tenant view as Owner/Manager
+# on every page that is pure viewing (dashboard, Statistics, Broadcasters,
+# BroadcasterDetail) - just never anything with a write action. Broader than
+# is_owner_or_manager on purpose: use this one, not that one, for view-only
+# "full tenant" checks.
+can_view_full_tenant = is_owner or is_manager or is_auditor or is_trial_viewer
+# Trial Viewer is read-only like Auditor, but additionally has no export at
+# all (Section 03/15) - narrower than Auditor on purpose. Gates every
+# st.download_button the app offers.
+can_export = not is_trial_viewer
+if is_trial_viewer:
+    # st.dataframe() has its own built-in toolbar (search/download/fullscreen
+    # icons) independent of the explicit st.download_button calls gated by
+    # can_export above - without this, Trial Viewer could still export via
+    # that icon regardless. Hides it globally for this session only.
+    # Targets both toolbar test-id variants seen across recent Streamlit
+    # versions; verify visually in dev that the download icon is actually
+    # gone, not just assumed gone from this selector.
+    st.markdown(
+        '<style>[data-testid="stElementToolbar"], '
+        '[data-testid="stDataFrameToolbar"] { display: none !important; }</style>',
+        unsafe_allow_html=True,
+    )
 business_id = user_business_id
 
 login_audit_key = f"_login_audited_{username}"
@@ -952,6 +985,10 @@ allowed_pages_by_role = {
     # Owner/Manager don't have a dedicated nav link for (they see the same
     # data embedded in Data Management instead).
     "auditor": {"Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "AuditLog", "MyProfile"},
+    # Same visual surface as Owner (Section 15) - dashboards and broadcaster
+    # data - minus AuditLog (not part of Trial Viewer's scope) and with every
+    # export gated off separately via can_export, not by page access.
+    "trial_viewer": {"Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "MyProfile"},
     "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile"},
 }
 
@@ -2225,10 +2262,11 @@ elif st.session_state.page == "Statistics":
                  "usd_earned", "my_earnings_usd", "diamonds_per_day", "growth_pct"]
     st.dataframe(view[show_cols].sort_values("usd_earned", ascending=False), width="stretch",
                  hide_index=True, column_config=table_column_config(show_cols))
-    st.download_button(
-        "Download broadcaster report", utils.safe_csv_bytes(view[show_cols]),
-        file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
-    )
+    if can_export:
+        st.download_button(
+            "Download broadcaster report", utils.safe_csv_bytes(view[show_cols]),
+            file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
+        )
     broadcaster_directory_panel.__exit__(None, None, None)
 
 # =============================================================== AUDIT LOG
