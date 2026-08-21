@@ -1394,4 +1394,6 @@ commit `c279ffe`. Tested on dev by the user 2026-08-22: confirmed both the
 "off" state (upgrade message in place of the full Statistics page content
 for an existing test business) and the "on" state (full dashboard
 reappeared after a temporary `growth` plan assignment). Result: **tested
-as expected.** Not yet pushed to prod.
+as expected.** Pushed to `main` at commit `83fe5db` (fast-forward from
+`81518b3`), tested on prod 2026-08-22: **tested as expected.** **Live and
+verified on both dev and prod.**
