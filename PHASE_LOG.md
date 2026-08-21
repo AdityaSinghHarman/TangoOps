@@ -805,3 +805,31 @@ Remaining before this could go to prod: revert the test promotion
 original value) so dev doesn't carry a lingering test artifact. Auditor,
 Broadcaster, and Trial Viewer's `expires_at` enforcement remain separate,
 not-yet-started slices of Phase 3b.
+
+---
+
+## 2026-08-22 — Phase 3b Agency Manager: pushed to prod and fully verified there too
+
+**What happened:** Code (pure `app.py` — no schema change needed, Phase 3a
+already put `roles`/`permissions`/`role_permissions` on prod) pushed to
+`main`, app rebooted. User confirmed all 3 prod businesses are test
+tenants, not real customers, so the same promote → verify → revert cycle
+used on dev was safe to run on prod directly.
+
+**Expected result:** Same checklist as dev — existing Owner/Sub-Agency
+logins unaffected; a promoted `agency_manager` test account shows the
+correct sidebar (no Recruiter Dashboard/Payouts/Create Sub-Agency/Data
+Management links), the full-tenant view on its visible pages, and the
+correct User Access restrictions (Sub-Agency-only create dropdown,
+"Owner-managed account" on the Owner's row).
+
+**Actual result:** Confirmed by the user — "tested all running as
+expected."
+
+**Status: Phase 3b's Agency Manager slice — done. Live and verified on
+both dev and prod.** `main` and `dev` both at commit `2cdd767`.
+**Outstanding cleanup, unconfirmed:** revert both test promotions (dev's
+and prod's) back to `sub_agency` — asked the user to confirm both are
+done, not verified in this log yet. Auditor role, Broadcaster role, and
+Trial Viewer's `expires_at` login-time enforcement remain separate,
+not-yet-started slices of Phase 3b.
