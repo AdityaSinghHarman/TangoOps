@@ -1009,3 +1009,22 @@ generic message, same as any other invalid login.
 
 **Status: Trial Viewer slice of Phase 3b — done, verified in dev.** Ready
 for prod, same rollout pattern as Agency Manager and Auditor.
+
+---
+
+## 2026-08-22 — Trial Viewer slice: pushed to prod, fully verified there too
+
+**What happened:** Code pushed to `main` (no schema change — `expires_at`
+already existed from Phase 2), app rebooted. Same two-scenario test
+(valid grant, expired grant) run directly on prod.
+
+**Actual result:** Confirmed by the user — "tested all running as
+expected."
+
+**Status: Trial Viewer slice of Phase 3b — done. Live and verified on
+both dev and prod.** `main` and `dev` both at commit `d667513`. Three of
+Phase 3b's four roles are now done: Agency Manager, Auditor, Trial Viewer.
+Remaining: Broadcaster — the biggest lift by far, since broadcasters have
+no login accounts at all today; this is closer to a new feature (a
+self-service account system) than the role-permission extensions the
+other three were.
