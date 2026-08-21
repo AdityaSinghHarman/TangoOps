@@ -837,7 +837,11 @@ avatar_b64 = _profile.get("avatar_base64") if _profile else None
 
 
 def current_user_context():
-    """Returns (role, business_id, sub_agency).
+    """Returns (role, business_id, sub_agency, profile_url).
+
+    profile_url is set only for role='broadcaster' - it scopes a Broadcaster
+    login to exactly one profile_url instead of a whole roster the way
+    sub_agency scopes a Recruiter. None for every other role.
 
     Resolves through `memberships` first — the authoritative source added so
     a login is no longer hardwired to a single business_id/role pair on its
@@ -860,7 +864,7 @@ def current_user_context():
     revoked, which isn't information worth giving away.
     """
     if username == bootstrap_username:
-        return "platform_admin", None, None
+        return "platform_admin", None, None, None
 
     businesses_df = load_businesses_df()
     active_business_ids = set(
@@ -888,26 +892,35 @@ def current_user_context():
             # between multiple is future scope (not built), so the most
             # recently created row is simply the default.
             r = member_rows.sort_values("created_at", ascending=False).iloc[0]
-            if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor", "trial_viewer"):
-                return None, None, None
-            return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
+            if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor", "trial_viewer", "broadcaster"):
+                return None, None, None, None
+            return (
+                r["role"], r["business_id"],
+                (r["sub_agency"] if r["role"] == "sub_agency" else None),
+                (r["profile_url"] if r["role"] == "broadcaster" else None),
+            )
 
+    # Broadcaster logins are always created directly in memberships (Phase
+    # 3b onward) and never predate scripts/backfill_memberships.py, so this
+    # fallback - which reads the legacy users table, with no profile_url
+    # column at all - can never resolve one. Not a gap: nothing broadcaster
+    # ever needs this path.
     users_df = load_all_users_df()
     if users_df.empty:
-        return None, None, None
+        return None, None, None, None
     normalized_usernames = users_df["username"].astype(str).str.strip().str.lower()
     row = users_df[normalized_usernames == username]
     if row.empty:
-        return None, None, None
+        return None, None, None, None
     r = row.iloc[0]
     if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor") or r["status"] != "Active":
-        return None, None, None
+        return None, None, None, None
     if r["business_id"] not in active_business_ids:
-        return None, None, None
-    return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
+        return None, None, None, None
+    return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None), None
 
 
-user_role, user_business_id, user_agency = current_user_context()
+user_role, user_business_id, user_agency, user_profile_url = current_user_context()
 if user_role is None:
     st.error("This login session is no longer valid or does not have an active StreamOperiq role.")
     st.warning("For security, no platform or agency data has been loaded. Sign out, then sign in with an active account.")
@@ -919,6 +932,7 @@ is_manager = user_role == "agency_manager"
 is_sub_agency = user_role == "sub_agency"
 is_auditor = user_role == "auditor"
 is_trial_viewer = user_role == "trial_viewer"
+is_broadcaster = user_role == "broadcaster"
 # Agency Manager sees everything Owner sees except billing/plan (not built yet)
 # and a handful of Owner-exclusive actions (Section 03 of the SaaS blueprint):
 # creating sub-agencies, editing commission rates, payouts, and data archival.
@@ -964,7 +978,7 @@ if business_id:
     biz_row = biz_row[biz_row["business_id"] == business_id]
     business_name = biz_row.iloc[0]["business_name"] if not biz_row.empty else ""
 
-default_page = "Businesses" if is_platform_admin else "Admin"
+default_page = "Businesses" if is_platform_admin else "BroadcasterDetail" if is_broadcaster else "Admin"
 allowed_pages_by_role = {
     "platform_admin": {"Businesses", "MyProfile"},
     "owner": {
@@ -990,6 +1004,10 @@ allowed_pages_by_role = {
     # export gated off separately via can_export, not by page access.
     "trial_viewer": {"Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "MyProfile"},
     "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile"},
+    # Own performance only (Section 03) - no roster, no dashboard, nothing
+    # else. BroadcasterDetail is locked to their own profile_url (see that
+    # page's own handling below), not a page they navigate to freely.
+    "broadcaster": {"BroadcasterDetail", "MyProfile"},
 }
 
 # Reset navigation when the authenticated identity changes. This prevents a
@@ -1000,7 +1018,9 @@ if st.session_state.get("_navigation_username") != username:
     # the app's query string and clears that stale fragment in the top window.
     st.query_params.clear()
     st.session_state.page = default_page
-    st.session_state.selected_profile_url = None
+    # A Broadcaster always views their own profile_url, never a chosen one -
+    # every other role starts with nothing selected until they pick one.
+    st.session_state.selected_profile_url = user_profile_url if is_broadcaster else None
     st.session_state._navigation_username = username
 elif st.session_state.get("page") not in allowed_pages_by_role[user_role]:
     st.session_state.page = default_page
@@ -1154,6 +1174,26 @@ with st.sidebar:
             )
             nav_button("Upload Monthly Report", "UploadMonthly", ":material/upload_file:")
 
+        nav_button("My Profile", "MyProfile", ":material/account_circle:")
+        authenticator.logout("Sign Out", "sidebar")
+
+    elif is_broadcaster:
+        render_sidebar_brand()
+        broadcaster_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "BC"
+        safe_business_name = html.escape(str(business_name))
+        safe_display_name = html.escape(str(display_name))
+        st.markdown(f"""
+        <div class="owner-workspace">
+          <div class="owner-workspace-avatar">{broadcaster_initials}</div>
+          <div class="owner-workspace-copy">
+            <div class="owner-workspace-name">{safe_display_name}</div>
+            <div class="owner-workspace-business">{safe_business_name}</div>
+            <div class="owner-workspace-role">Broadcaster</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        nav_button("My Performance", "BroadcasterDetail", ":material/monitoring:")
         nav_button("My Profile", "MyProfile", ":material/account_circle:")
         authenticator.logout("Sign Out", "sidebar")
 
@@ -2694,10 +2734,20 @@ elif st.session_state.page == "Broadcasters":
 elif st.session_state.page == "BroadcasterDetail":
     profile_url = st.session_state.get("selected_profile_url")
     if not profile_url:
-        st.info("Pick a broadcaster from the Broadcasters list first.")
-        if st.button("Go to broadcasters"):
-            st.session_state.page = "Broadcasters"
-            st.rerun()
+        if is_broadcaster:
+            st.error("Your broadcaster profile isn't linked correctly. Contact your agency.")
+        else:
+            st.info("Pick a broadcaster from the Broadcasters list first.")
+            if st.button("Go to broadcasters"):
+                st.session_state.page = "Broadcasters"
+                st.rerun()
+        st.stop()
+
+    # A Broadcaster is scoped to exactly one profile_url (memberships.profile_url,
+    # set at grant time) - defense in depth alongside the auto-set on login,
+    # in case session state were ever manipulated to point somewhere else.
+    if is_broadcaster and profile_url != user_profile_url:
+        st.error("You don't have access to this broadcaster.")
         st.stop()
 
     raw = load_all_raw(business_id)
@@ -2711,13 +2761,14 @@ elif st.session_state.page == "BroadcasterDetail":
     a_row = assignments[assignments["profile_url"] == profile_url] if not assignments.empty else assignments
     sub_agency = a_row.iloc[0]["sub_agency"] if not a_row.empty else "Agency Direct"
 
-    if not can_view_full_tenant and sub_agency != user_agency:
+    if not is_broadcaster and not can_view_full_tenant and sub_agency != user_agency:
         st.error("You don't have access to this broadcaster.")
         st.stop()
 
-    if st.button("\u2190 Back to broadcasters"):
-        st.session_state.page = "Broadcasters"
-        st.rerun()
+    if not is_broadcaster:
+        if st.button("\u2190 Back to broadcasters"):
+            st.session_state.page = "Broadcasters"
+            st.rerun()
 
     latest = hist.iloc[-1]
     prev = hist.iloc[-2] if len(hist) > 1 else None
@@ -2735,7 +2786,11 @@ elif st.session_state.page == "BroadcasterDetail":
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("Streaming hours", f"{float(latest['streaming_hours']):,.1f}")
     c6.metric("Creator revenue", f"${float(latest['usd_earned']):,.2f}")
-    c7.metric("Agency revenue", f"${float(latest['my_earnings_usd']):,.2f}")
+    if not is_broadcaster:
+        # Agency revenue is the agency's own commission/cut, not the
+        # broadcaster's own performance (Section 03: Broadcaster sees "own
+        # performance only") - not this login's business to see.
+        c7.metric("Agency revenue", f"${float(latest['my_earnings_usd']):,.2f}")
     previous_diamonds = float(prev["diamonds_redeemed"]) if prev is not None else 0
     growth = ((float(latest["diamonds_redeemed"]) - previous_diamonds) / previous_diamonds * 100
               if previous_diamonds else None)
@@ -2753,15 +2808,19 @@ elif st.session_state.page == "BroadcasterDetail":
         st.markdown("###### Streaming hours history")
         st.line_chart(hist.set_index("period")["streaming_hours"], height=190)
 
-    st.markdown("###### Assignment history")
-    log = store.get_assignment_history(profile_url, business_id)
-    if log.empty:
-        st.caption("No assignment recorded yet.")
-    else:
-        for _, r in log.iterrows():
-            when = str(r["assigned_at"])[:10]
-            by = r["assigned_by"] or "owner"
-            st.write(f"**Assigned to {r['sub_agency']}** \u2014 {when} by {by}")
+    if not is_broadcaster:
+        # Internal recruiter-assignment history, including which staff
+        # username made the change - agency operations, not this
+        # broadcaster's own performance (Section 03 scope).
+        st.markdown("###### Assignment history")
+        log = store.get_assignment_history(profile_url, business_id)
+        if log.empty:
+            st.caption("No assignment recorded yet.")
+        else:
+            for _, r in log.iterrows():
+                when = str(r["assigned_at"])[:10]
+                by = r["assigned_by"] or "owner"
+                st.write(f"**Assigned to {r['sub_agency']}** \u2014 {when} by {by}")
 
 # ================================================================ SUB-AGENCIES
 elif st.session_state.page == "SubAgencies":

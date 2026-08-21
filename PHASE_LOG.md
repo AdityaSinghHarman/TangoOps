@@ -1028,3 +1028,77 @@ Remaining: Broadcaster — the biggest lift by far, since broadcasters have
 no login accounts at all today; this is closer to a new feature (a
 self-service account system) than the role-permission extensions the
 other three were.
+
+---
+
+## 2026-08-22 — Phase 3b, fourth slice: Broadcaster (first slice — real database change this time)
+
+**Scoped down deliberately**, agreed with the user before starting: schema
+addition + reusing the existing `BroadcasterDetail` page locked to one
+`profile_url`, granted via SQL like the other three roles. Deferred: the
+actual invite/signup flow, and plan-based dashboard-access gating
+(Section 04 — not built until Phase 4 anyway).
+
+**This one needs a real migration**, unlike Auditor/Trial Viewer -
+`memberships` gained a genuinely new column.
+
+**What was done:**
+- `memberships.profile_url` (nullable) - `sub_agency` scopes a Recruiter to
+  a whole named roster; a Broadcaster needs a narrower scope (exactly one
+  broadcaster), so it gets its own column rather than overloading
+  `sub_agency` with a second meaning depending on role.
+- `current_user_context()`'s return value grew from a 3-tuple to a
+  4-tuple (added `profile_url`) - the single call site was updated to
+  unpack 4 values. Every return statement in the function (6 of them,
+  including 2 in the fallback path) updated to match. `profile_url` is
+  only ever populated for `role == 'broadcaster'`; every other role gets
+  `None` in that slot, same as `sub_agency` already worked.
+- `allowed_pages_by_role["broadcaster"]` = `BroadcasterDetail`, `MyProfile`
+  only - no dashboard, no roster, nothing else.
+- On login, `selected_profile_url` is auto-set to the broadcaster's own
+  `profile_url` (not `None`, the way every other role starts) - they never
+  pick a broadcaster, they land directly on their own.
+- **`BroadcasterDetail` reused rather than a new page built from scratch**
+  - it already renders exactly the per-broadcaster history view Section 03
+  asks for. Added: a broadcaster-appropriate message if `profile_url` is
+  somehow missing (instead of pointing them at a "Broadcasters list" page
+  they have no access to); a defense-in-depth check that blocks viewing
+  any `profile_url` other than their own even if session state were ever
+  manipulated; hid "Agency revenue" (the agency's own commission cut, not
+  the broadcaster's own performance) and the "Assignment history" section
+  (exposes internal staff usernames - agency operations, not broadcaster
+  data) specifically for this role; hid the "Back to broadcasters" button
+  (they have no Broadcasters page to go back to).
+- **Caught and fixed a real bug before testing, not after this time**: the
+  sidebar's structure is `if can_view_full_tenant: ... elif is_sub_agency:
+  ... else: [platform-admin-only content]`. Broadcaster would have fallen
+  into that bare `else:` branch - literally labeled "PLATFORM CONTROL" -
+  with no navigation and **no sign-out button at all**. Added a dedicated
+  `elif is_broadcaster:` branch with a proper workspace card, a nav link
+  back to their own performance view, My Profile, and sign-out.
+
+**Expected result:** A test account promoted to `broadcaster` with a real
+`profile_url` set should log in and land directly on that broadcaster's
+own performance page - diamonds/streaming history charts, no agency
+revenue figure, no assignment history, no "back to broadcasters" button.
+Sidebar shows exactly "My Performance" and "My Profile," with a working
+sign-out. Cannot reach any other page - the Admin dashboard, Broadcasters
+list, everything else redirects away.
+
+**How to verify (needs the migration run first, then a real profile_url
+from the test data):**
+```sql
+-- find a real profile_url to test with:
+SELECT DISTINCT profile_url, broadcaster_name FROM raw_uploads
+WHERE business_id = '<business_id>' LIMIT 5;
+
+-- promote a test account:
+UPDATE memberships SET role = 'broadcaster', profile_url = '<a profile_url from above>'
+WHERE username = '<username>' AND business_id = '<business_id>';
+
+-- revert when done:
+UPDATE memberships SET role = 'sub_agency', profile_url = NULL
+WHERE username = '<username>' AND business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.

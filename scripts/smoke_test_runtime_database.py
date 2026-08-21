@@ -43,9 +43,9 @@ def main():
                 (username, marker, "transaction-only-test", business_id),
             )
             cur.execute(
-                "INSERT INTO memberships (business_id, username, role, sub_agency, status, expires_at) "
-                "VALUES (%s,%s,'owner',NULL,'Active',%s)",
-                (business_id, username, now + dt.timedelta(days=5)),
+                "INSERT INTO memberships (business_id, username, role, sub_agency, status, expires_at, profile_url) "
+                "VALUES (%s,%s,'owner',NULL,'Active',%s,%s)",
+                (business_id, username, now + dt.timedelta(days=5), profile_url),
             )
             cur.execute(
                 "INSERT INTO subscriptions (business_id, plan_code, billing_cycle, status, auto_renew) "

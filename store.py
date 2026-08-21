@@ -86,6 +86,13 @@ CREATE INDEX IF NOT EXISTS idx_memberships_username
 ALTER TABLE memberships
     ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
 
+-- NULL for every role except broadcaster. sub_agency scopes a Recruiter to a
+-- whole named roster; a Broadcaster login needs a narrower scope - one
+-- specific profile_url, not a roster - so it gets its own column rather than
+-- overloading sub_agency with a different meaning depending on role.
+ALTER TABLE memberships
+    ADD COLUMN IF NOT EXISTS profile_url TEXT;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -653,8 +660,8 @@ def get_memberships(username: str) -> pd.DataFrame:
     active row; ordering by created_at desc anticipates a future login
     holding more than one without changing behavior for anyone who doesn't."""
     return _query(
-        "SELECT business_id, role, sub_agency, status, expires_at, created_at FROM memberships "
-        "WHERE lower(trim(username))=%s ORDER BY created_at DESC",
+        "SELECT business_id, role, sub_agency, status, expires_at, profile_url, created_at "
+        "FROM memberships WHERE lower(trim(username))=%s ORDER BY created_at DESC",
         (_normalize_username(username),),
     )
 
@@ -662,7 +669,7 @@ def get_memberships(username: str) -> pd.DataFrame:
 def get_all_memberships() -> pd.DataFrame:
     return _query(
         "SELECT business_id, username, role, sub_agency, status, invited_by, "
-        "expires_at, created_at FROM memberships ORDER BY created_at"
+        "expires_at, profile_url, created_at FROM memberships ORDER BY created_at"
     )
 
 
