@@ -841,11 +841,14 @@ def current_user_context():
 
     Resolves through `memberships` first — the authoritative source added so
     a login is no longer hardwired to a single business_id/role pair on its
-    `users` row (SaaS Phase 2). Falls back to reading `users` directly only
-    when this login has zero active membership rows, which should only be
-    possible for an account that predates scripts/backfill_memberships.py
-    having been run; it is a zero-downtime safety net for that deploy
-    ordering, not a normal or permanent path.
+    `users` row (SaaS Phase 2). Falls back to reading `users` directly when
+    this login has zero active membership rows (expected only for an account
+    that predates scripts/backfill_memberships.py), and also when the
+    `memberships` query itself fails outright — e.g. code deployed before
+    scripts/run_migrations.py has created the table, or before
+    database/restricted_role_setup.sql has granted it. Either way this is a
+    zero-downtime safety net for deploy ordering, not a normal or permanent
+    path.
     """
     if username == bootstrap_username:
         return "platform_admin", None, None
@@ -855,7 +858,10 @@ def current_user_context():
         businesses_df[businesses_df["status"] == "Active"]["business_id"]
     ) if not businesses_df.empty else set()
 
-    memberships_df = load_all_memberships_df()
+    try:
+        memberships_df = load_all_memberships_df()
+    except Exception:
+        memberships_df = pd.DataFrame()
     if not memberships_df.empty:
         normalized_member_usernames = memberships_df["username"].astype(str).str.strip().str.lower()
         member_rows = memberships_df[

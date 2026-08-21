@@ -134,8 +134,55 @@ forces a genuine fresh process start and a full re-import of every module.
 module `app.py` imports), don't assume the auto "Updated app!" pull is
 enough — do a manual reboot to be sure, especially before testing.
 
-**Status:** Reboot instructed; awaiting confirmation it resolves the login
-error.
+**Status:** Resolved by reboot. Login then surfaced a second, unrelated
+issue (below), now also resolved.
+
+---
+
+## 2026-08-22 — Caught: dev app's Streamlit secrets had the old `tangoops_app` password
+
+**What happened:** After the reboot fixed the module-cache issue, login
+failed again with `FATAL: password authentication failed for user
+"tangoops_app"`. Cause: earlier today, `tangoops_app`'s password was reset
+via `ALTER ROLE` (to run the backfill script through an env var, bypassing
+the prod-pointing local `secrets.toml`). That changed the password in the
+database, but the **dev app's own Streamlit Cloud secrets** still held the
+old one — a direct, foreseeable side effect of the password-reset workaround
+that wasn't caught until this test.
+
+**Fix:** updated the dev app's Streamlit Cloud secrets (`[postgres]
+connection_string`) with the new password, username/host left unchanged
+since those were already correct. App rebooted again.
+
+**Expected result:** Agency Owner and Sub-Agency logins succeed, dashboards
+match pre-Phase-2 behavior exactly.
+
+**Actual result:** Confirmed by the user — logged in successfully as both
+Agency Admin (Owner) and Sub-Agency Admin, both working normally.
+
+**Status:** Done. Test checklist item 1 (existing logins unaffected) passed.
+
+---
+
+## 2026-08-22 — Phase 2 test checklist: all 4 items passed in dev
+
+**What was done:** Created one new test user through the dev app's normal
+UI flow.
+
+**Expected result:** The new username appears in both the `users` table and
+the `memberships` table (proving `create_user()`'s atomic dual-write works
+for new logins, not just backfilled old ones).
+
+**Actual result:** Confirmed by the user — visible in both tables.
+
+**Full checklist status:**
+1. Existing logins unaffected — ✅ passed (Agency Owner + Sub-Agency Admin).
+2. `memberships` row count sane — ✅ passed (12 rows, matched 12 users).
+3. `is_demo` flagged on pre-existing businesses — ✅ passed (3 of 3).
+4. New user gets both `users` and `memberships` rows — ✅ passed.
+
+**Status: Phase 2 is fully verified in dev.** Next gate per the staged
+rollout process: prod push approval.
 
 ---
 
@@ -281,14 +328,51 @@ here" callout in the blueprint artifact.
 
 ---
 
-## Open items carried forward (not yet done as of 2026-08-22)
+## 2026-08-22 — Hardening: `current_user_context()` now survives a missing/ungranted `memberships` table
 
-1. Run `scripts/run_migrations.py` against dev — creates the
-   `memberships`/`subscriptions` tables (administrator connection).
-2. Re-run `database/restricted_role_setup.sql` in the Supabase SQL Editor
-   for dev — grants the restricted role access to the tables migrations
-   just created.
-3. Run `scripts/backfill_memberships.py` against dev.
-4. Verify all three Phase 2 commits above against their stated expected
-   results.
-5. Only after all of the above check out: ask about pushing to prod.
+**What was done:** The existing fallback only covered "zero active
+membership rows" (an empty query result). It did not cover the
+`memberships` query failing outright — e.g. if app code were ever live
+before `run_migrations.py` had created the table, or before
+`restricted_role_setup.sql` had granted it, every login would crash with an
+uncaught exception instead of falling back gracefully. Wrapped the
+`load_all_memberships_df()` call in `current_user_context()` in a
+try/except that treats any failure the same as an empty result.
+
+**Why this matters for prod specifically:** dev sat with this gap for about
+a day between the code landing and the migration running, with no visible
+impact only because nobody happened to log in during that window. Prod has
+real, continuous usage — the same gap there would have caused real login
+failures. Closing this before prod gets any of this code.
+
+**Expected result:** Behavior is identical to before on the success path
+(dev's already-passing tests are unaffected, since the query has been
+succeeding there since the migration ran). On a hypothetical failure path,
+login now falls back to the pre-Phase-2 `users`-table lookup instead of
+crashing.
+
+**Status:** Pushed to dev (no re-test needed — provably a no-op change on
+the path dev already verified). Included in the prod push below.
+
+---
+
+## Phase 2 → prod rollout (started 2026-08-22 evening)
+
+Following the exact same steps that succeeded on dev, against prod's
+database and app. See above for the working connection-string shape,
+troubleshooting notes, and lessons already learned — expect some of them to
+recur here, especially the pooler/DNS and password mismatch issues.
+
+1. Run `scripts/run_migrations.py` against **prod** — creates the
+   `memberships`/`subscriptions` tables.
+2. Run `database/restricted_role_setup.sql` in the Supabase SQL Editor for
+   **prod** — grants `tangoops_app` access to the new tables. (Prod's
+   `tangoops_app` role already exists, same as dev did, so the `CREATE
+   ROLE` block will skip — no password to set there.)
+3. Run `scripts/backfill_memberships.py` against **prod** — real customer
+   data this time, not dummy tenants. Preview the counts carefully before
+   typing `yes`.
+4. Push the code (`app.py`, `store.py`, and everything else already on
+   `dev`) to `origin/main`.
+5. Confirm real prod logins still work — same spirit as the dev checklist,
+   but this time it's actual customers' accounts, not test ones.
