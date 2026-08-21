@@ -963,6 +963,14 @@ if "selected_profile_url" not in st.session_state:
 
 
 def nav_button(label, page_key, icon=None):
+    # Bug caught in Phase 3b dev testing: the sidebar's outer gate covers both
+    # Owner and Manager, but not every button inside it is in every role's
+    # allowed_pages_by_role set. Rather than gate each call site individually
+    # (easy to miss one), nav_button itself won't render a link the current
+    # role can't actually use - the page-level redirect already blocked the
+    # destination, this just stops offering a link that silently bounces back.
+    if page_key not in allowed_pages_by_role.get(user_role, set()):
+        return
     if st.button(label, width='stretch', icon=icon,
                  type="primary" if st.session_state.page == page_key else "secondary"):
         st.session_state.page = page_key

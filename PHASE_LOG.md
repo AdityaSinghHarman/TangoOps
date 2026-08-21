@@ -749,6 +749,41 @@ separate, not-yet-started work.
 tenant (or promote an existing test sub-agency login), log in as that
 account, and walk through every item in "Expected result" above.
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed, pushed to dev (`caed655`).
 Auditor role, Broadcaster role, and Trial Viewer's `expires_at` login-time
 enforcement remain separate, not-yet-started slices of Phase 3b.
+
+---
+
+## 2026-08-22 — Phase 3b: real dev testing caught a real bug — sidebar showed nav links to pages Manager couldn't actually open
+
+**What happened:** User promoted an existing test sub-agency login to
+`agency_manager` and logged in to test. Page-level access worked correctly
+(could reach the pages Manager should have; blocked from the ones it
+shouldn't) — but the sidebar showed clickable links for Payouts,
+CreateAgency, SubAgencies, and DataManagement anyway, because the
+sidebar's outer gate (`if is_owner_or_manager:`) was extended for this
+change, but the individual `nav_button()` calls inside it weren't further
+filtered by `allowed_pages_by_role`. Clicking one of those links wouldn't
+have actually worked - a separate page-level redirect check
+(`elif st.session_state.get("page") not in allowed_pages_by_role[user_role]`)
+would bounce back to the dashboard on the next rerun, and each of those
+page's own hard `is_owner` gate would also still block it. **Not a
+security hole - a cosmetic/UX bug**, but a real one, and exactly the kind
+of thing this dev testing step exists to catch before it reaches prod.
+
+**Fix:** `nav_button()` itself now checks `allowed_pages_by_role` and
+simply doesn't render if the current role can't access that page — fixes
+it once, for every nav button, rather than needing every call site to
+remember to gate itself individually (which is exactly what got missed
+here).
+
+**Expected result after the fix:** Logged in as the test `agency_manager`
+account, the sidebar should show only: My Dashboard, Broadcaster Dashboard,
+Broadcasters, Assign Broadcasters, Monthly/Daily Report, User Access, My
+Profile. No Recruiter Dashboard (SubAgencies), Broadcaster Rewards
+(Payouts), Create Sub-Agency, or Data Management links should appear at
+all.
+
+**Status:** Fixed, compiled. Not yet pushed — pending this round of
+re-testing.
