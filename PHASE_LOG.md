@@ -1389,4 +1389,9 @@ ON CONFLICT (business_id) DO UPDATE SET plan_code = 'growth';
 DELETE FROM subscriptions WHERE business_id = '<business_id>';
 ```
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `c279ffe`. Tested on dev by the user 2026-08-22: confirmed both the
+"off" state (upgrade message in place of the full Statistics page content
+for an existing test business) and the "on" state (full dashboard
+reappeared after a temporary `growth` plan assignment). Result: **tested
+as expected.** Not yet pushed to prod.
