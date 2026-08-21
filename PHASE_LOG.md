@@ -1507,4 +1507,9 @@ DELETE FROM subscriptions WHERE business_id = '<business_id>';
 
 **Status:** Implemented, compiled, self-reviewed, PDF generation tested
 directly against realistic data shapes for all five export sites (not
-just via the app). Not yet pushed to dev.
+just via the app). Pushed to `dev` at commit `e474523`. Tested on dev by
+the user 2026-08-22: confirmed both the "off" state (CSV-only at all five
+export locations for an existing test business) and the "on" state (PDF
+buttons appeared at all five locations after a temporary `growth` plan
+assignment, downloaded PDFs opened correctly). Result: **tested as
+expected.** Not yet pushed to prod.
