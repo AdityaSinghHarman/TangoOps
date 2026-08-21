@@ -785,5 +785,23 @@ Profile. No Recruiter Dashboard (SubAgencies), Broadcaster Rewards
 (Payouts), Create Sub-Agency, or Data Management links should appear at
 all.
 
-**Status:** Fixed, compiled. Not yet pushed — pending this round of
-re-testing.
+**Status:** Fixed, compiled, pushed to dev (`964fe17`).
+
+---
+
+## 2026-08-22 — Phase 3b, first slice: Agency Manager fully verified in dev
+
+**Confirmed by the user, after the sidebar fix and an app reboot:**
+- Sidebar shows exactly the right set of links for the test `agency_manager`
+  account — no Recruiter Dashboard, Broadcaster Rewards, Create Sub-Agency,
+  or Data Management.
+- User Access's "Create User" role dropdown only offers Sub-Agency.
+- The Owner's row in User Access's existing-users list shows "Owner-managed
+  account" instead of Disable/Reset controls.
+
+**Status: Agency Manager slice of Phase 3b — done, verified in dev.**
+Remaining before this could go to prod: revert the test promotion
+(`UPDATE memberships SET role = 'sub_agency' WHERE ...` back to its
+original value) so dev doesn't carry a lingering test artifact. Auditor,
+Broadcaster, and Trial Viewer's `expires_at` enforcement remain separate,
+not-yet-started slices of Phase 3b.
