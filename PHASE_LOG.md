@@ -1512,4 +1512,6 @@ the user 2026-08-22: confirmed both the "off" state (CSV-only at all five
 export locations for an existing test business) and the "on" state (PDF
 buttons appeared at all five locations after a temporary `growth` plan
 assignment, downloaded PDFs opened correctly). Result: **tested as
-expected.** Not yet pushed to prod.
+expected.** Pushed to `main` at commit `cae266a` (fast-forward from
+`6d2e2dd`), tested on prod 2026-08-22: **tested as expected.** **Live and
+verified on both dev and prod.**
