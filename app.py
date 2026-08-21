@@ -728,6 +728,17 @@ def load_ai_features_enabled(biz_id):
     return value not in (None, "off")
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_broadcaster_dashboard_access(biz_id):
+    """Phase 4b, second slice: the Statistics ("Broadcaster Dashboard") page
+    is a whole-page gate, not per-panel like ai_features. Section 04:
+    Essential = off, Growth/Pioneer = readonly, Scale = full, Network =
+    full_custom. This slice only distinguishes off vs not-off - the
+    readonly/full/full_custom distinction is future scope."""
+    value = store.has_feature(biz_id, "broadcaster_dashboard_access")
+    return value if value not in (None, "off") else "off"
+
+
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
@@ -2174,6 +2185,13 @@ elif st.session_state.page == "Statistics":
     <h1>Broadcaster Dashboard</h1><p>Search, segment, and compare every broadcaster in the agency roster.</p>
     </div><div class="overview-period-pill">Broadcaster intelligence</div></div>
     """, unsafe_allow_html=True)
+    if load_broadcaster_dashboard_access(business_id) == "off":
+        st.info(
+            "**The Broadcaster Dashboard is a Growth-plan feature and above.** "
+            "Upgrade to unlock roster-wide analytics, retention health, and "
+            "performance comparisons here."
+        )
+        st.stop()
     dashboard_section_control("broadcaster_dashboard", ["Overview", "Performance", "Retention", "Directory"])
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:

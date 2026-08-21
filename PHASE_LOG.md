@@ -1323,4 +1323,70 @@ just be the user looking at the expected off-state screen, not a bug),
 then confirmed the "on" state after inserting a `subscriptions` row with
 `plan_code='growth'` — health score ring, retention warning, and full
 Insights tab content all reappeared as expected. Result: **tested as
-expected.** Not yet pushed to prod.
+expected.** Pushed to `main` at commit `81518b3` (fast-forward from
+`74d0271`), tested on prod 2026-08-22: **tested as expected.** Test
+`subscriptions` row deleted afterward to return the test business to
+baseline. **Live and verified on both dev and prod.**
+
+---
+
+## Phase 4b, second slice: `broadcaster_dashboard_access` gating the Statistics page
+
+**No schema change** — `has_feature()` already existed from 4a. Pure
+`app.py` work, same shape as the `ai_features` slice.
+
+**What was done:**
+- `load_broadcaster_dashboard_access(business_id)` — cached (`ttl=30`),
+  calls `store.has_feature(business_id, 'broadcaster_dashboard_access')`.
+  Section 04's tiers are `off` (Essential) / `readonly` (Growth, Pioneer)
+  / `full` (Scale) / `full_custom` (Network). This slice only
+  distinguishes `off` vs not-`off` — the readonly/full/full_custom
+  distinction (presumably extra filtering/export/customization
+  capabilities within the page) is future scope, not this slice, same
+  reasoning as the ai_features basic/advanced/custom deferral.
+- Gated the **entire Statistics ("Broadcaster Dashboard") page** — the
+  hero header still renders (title/context stays visible), but everything
+  below it (the section tabs, KPIs, retention panel, performance charts,
+  directory/export) is replaced with a single upgrade message and
+  `st.stop()` when the tenant's tier resolves to `off`.
+- **Left the sidebar's "Broadcaster Dashboard" nav link visible** whether
+  or not the feature is off, consistent with how the Insights tab stayed
+  visible in the ai_features slice — clicking through shows the upgrade
+  message rather than the link disappearing. Keeps this slice's diff
+  small and avoids touching `nav_button`/`allowed_pages_by_role` at all.
+- **Existing role gate at the top of the page (`can_view_full_tenant`)
+  left untouched** — this is a plan gate layered on top of, not instead
+  of, the existing role gate. Sub-Agency and Broadcaster still can't
+  reach this page at all, regardless of plan.
+
+**Important thing to know before testing**: same as the ai_features
+slice — no business has a `subscriptions` row yet, so every existing
+business defaults to `essential`/`off`. **Every existing test business
+should show the upgrade message immediately on deploy**, not the
+dashboard content.
+
+**Expected result:**
+1. **Immediately after deploy, any existing test business** (Owner,
+   Agency Manager, or Auditor login): the Statistics page's hero shows,
+   but everything below it is replaced by the upgrade message.
+2. **After giving a test business a non-essential plan**: the full
+   Overview/Performance/Retention/Directory content reappears exactly as
+   it looked before this slice, including CSV export (still separately
+   gated by `can_export`, unrelated to this slice).
+
+**How to verify:**
+```sql
+-- confirm the "off" state first (should already be true for any business):
+-- log in as Owner/Manager/Auditor, open Broadcaster Dashboard, confirm the upgrade message.
+
+-- then give one test business a plan with dashboard access on:
+INSERT INTO subscriptions (business_id, plan_code, billing_cycle, status, auto_renew)
+VALUES ('<business_id>', 'growth', 'annual', 'active', false)
+ON CONFLICT (business_id) DO UPDATE SET plan_code = 'growth';
+-- reload after the 30s cache expires - the full dashboard should reappear.
+
+-- revert when done:
+DELETE FROM subscriptions WHERE business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
