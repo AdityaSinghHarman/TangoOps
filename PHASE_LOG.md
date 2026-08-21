@@ -1222,4 +1222,14 @@ SELECT
 ```
 Expected: `5, 60, 0`.
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed, pushed to dev (`d0df672`).
+
+---
+
+## 2026-08-22 — Phase 4a fully verified in dev
+
+**Actual result:** `plans_count 5, plan_features_count 60,
+entitlements_count 0` — exact match to expected.
+
+**Status: Phase 4a — done, verified in dev.** Ready for prod, same
+rollout pattern as every prior schema-only slice.
