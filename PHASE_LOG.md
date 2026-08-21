@@ -679,3 +679,76 @@ grants, and seed data confirmed correct on both environments. Code push to
 independent of the code push, so pushing the code now just brings
 `store.py`'s `has_permission()`/`get_roles()`/etc. helper functions (still
 unused by `app.py`) into sync between dev and prod.
+
+---
+
+## 2026-08-22 — Phase 3b, first slice: Agency Manager is a real, working role
+
+**This is genuine behavior change**, unlike everything in Phase 2 and
+Phase 3a — unlike those, this needs real testing in dev before it goes
+anywhere near prod.
+
+**Scope decision:** mapped every `is_owner`/`is_sub_agency`/
+`is_platform_admin` call site in `app.py` (34/5/4 occurrences) before
+touching anything. Most `is_owner` sites are the same semantic question —
+"full tenant view vs. own-scoped view" — which maps directly onto
+`broadcaster.view` in the Phase 3a permission seed. Only a handful are
+genuinely Owner-exclusive actions. Did **Agency Manager only** in this
+slice; Auditor, Broadcaster, and Trial Viewer's expiry enforcement are
+separate, not-yet-started work.
+
+**What was done:**
+- `current_user_context()`'s role whitelist now accepts `agency_manager`
+  (both the memberships-path and the fallback-path checks).
+- Added `is_manager` and a derived `is_owner_or_manager` boolean.
+- `allowed_pages_by_role["agency_manager"]` = everything Owner has **except**
+  SubAgencies, CreateAgency, DataManagement, and Payouts.
+- Replaced `is_owner` with `is_owner_or_manager` at 28 call sites where the
+  semantic question was "full view" — the dashboard, Statistics,
+  Broadcasters, BroadcasterDetail, Assign, and Upload pages.
+- **Left `is_owner` unchanged at 6 sites, deliberately:** Payouts,
+  CreateAgency, DataManagement (Manager's permission set excludes all
+  three), and **SubAgencies** — which Section 03 of the blueprint actually
+  says Manager should see, but that page has a live commission-rate edit
+  control (`update_agency_commission`) Manager's permission set excludes.
+  Chose the safer gap (Manager sees slightly less than spec) over the risk
+  of a permission leak (Manager editing commission rates). Worth revisiting
+  once/if that page's view and edit responsibilities are split apart.
+- **Caught one real bug during the mapping**, not introduced by this
+  change: the upload-confirmation auto-assign logic (`if not is_owner: ...
+  store.assign_broadcasters(..., user_agency, ...)`) would have silently
+  broken for Manager, since `user_agency` is `None` for a tenant-wide role
+  — auto-assigning uploads to `None` as a sub-agency name. Fixed to check
+  `is_sub_agency` directly instead, which is what the logic actually means.
+- **UserAccess page got special handling**, not just extended: Manager can
+  access it, but the "Create User" role dropdown only offers `sub_agency`
+  to a Manager (never `owner` or `agency_manager`), and the
+  disable/enable/reset-password controls on existing users are hidden
+  (replaced with "Owner-managed account") whenever the target user's role
+  isn't `sub_agency` and the actor isn't the Owner. Enforces "no role can
+  invite/suspend a role above or equal to itself" (Section 03) at the only
+  two places a Manager could otherwise act on another login.
+
+**Expected result:**
+- Existing Owner and Sub-Agency logins behave **identically** to before —
+  none of their code paths changed value (`is_owner`/`is_sub_agency` are
+  still computed the same way; only new variables were added).
+- A test user created with `role = 'agency_manager'` (via SQL, since the
+  UserAccess dropdown to create one requires being logged in as Owner
+  first) should be able to log in and see: Admin, Statistics, Broadcasters,
+  BroadcasterDetail, Assign, UploadMonthly, UploadDaily, UserAccess,
+  MyProfile — with the same "full tenant view" as an Owner on all of them.
+- That same Manager should be **blocked** from: SubAgencies, CreateAgency,
+  DataManagement, Payouts (page-level, via `allowed_pages_by_role`).
+- In UserAccess specifically, a Manager should only be able to create
+  `sub_agency` logins, and should see "Owner-managed account" instead of
+  Disable/Enable/Reset controls on the existing Owner row.
+
+**How to verify:** In dev's Supabase Table Editor, insert one test
+`memberships` row with `role = 'agency_manager'` for an existing test
+tenant (or promote an existing test sub-agency login), log in as that
+account, and walk through every item in "Expected result" above.
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+Auditor role, Broadcaster role, and Trial Viewer's `expires_at` login-time
+enforcement remain separate, not-yet-started slices of Phase 3b.
