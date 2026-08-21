@@ -874,7 +874,7 @@ def current_user_context():
             # between multiple is future scope (not built), so the most
             # recently created row is simply the default.
             r = member_rows.sort_values("created_at", ascending=False).iloc[0]
-            if r["role"] not in ("owner", "agency_manager", "sub_agency"):
+            if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor"):
                 return None, None, None
             return r["role"], r["business_id"], (r["sub_agency"] if r["role"] == "sub_agency" else None)
 
@@ -886,7 +886,7 @@ def current_user_context():
     if row.empty:
         return None, None, None
     r = row.iloc[0]
-    if r["role"] not in ("owner", "agency_manager", "sub_agency") or r["status"] != "Active":
+    if r["role"] not in ("owner", "agency_manager", "sub_agency", "auditor") or r["status"] != "Active":
         return None, None, None
     if r["business_id"] not in active_business_ids:
         return None, None, None
@@ -903,12 +903,18 @@ is_platform_admin = user_role == "platform_admin"
 is_owner = user_role == "owner"
 is_manager = user_role == "agency_manager"
 is_sub_agency = user_role == "sub_agency"
+is_auditor = user_role == "auditor"
 # Agency Manager sees everything Owner sees except billing/plan (not built yet)
 # and a handful of Owner-exclusive actions (Section 03 of the SaaS blueprint):
 # creating sub-agencies, editing commission rates, payouts, and data archival.
-# Used wherever "full tenant view" is the deciding factor rather than one of
-# those specific Owner-only actions.
+# Used specifically for pages/actions Manager can DO but Auditor (read-only,
+# zero write rights) cannot - Assign, Upload, User Access.
 is_owner_or_manager = is_owner or is_manager
+# Auditor sees the same full-tenant view as Owner/Manager on every page that
+# is pure viewing (dashboard, Statistics, Broadcasters, BroadcasterDetail) -
+# just never anything with a write action. Broader than is_owner_or_manager
+# on purpose: use this one, not that one, for view-only "full tenant" checks.
+can_view_full_tenant = is_owner or is_manager or is_auditor
 business_id = user_business_id
 
 login_audit_key = f"_login_audited_{username}"
@@ -941,6 +947,11 @@ allowed_pages_by_role = {
         "Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "Assign",
         "UploadMonthly", "UploadDaily", "UserAccess", "MyProfile",
     },
+    # Read-only, full-tenant view (Section 03): no Assign/Upload/UserAccess -
+    # nothing Auditor can act on, only look at. AuditLog is Auditor's one page
+    # Owner/Manager don't have a dedicated nav link for (they see the same
+    # data embedded in Data Management instead).
+    "auditor": {"Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "AuditLog", "MyProfile"},
     "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile"},
 }
 
@@ -1011,7 +1022,7 @@ def render_sidebar_brand():
 
 
 with st.sidebar:
-    if is_owner_or_manager:
+    if can_view_full_tenant:
         st.markdown('<div class="owner-sidebar-marker"></div>', unsafe_allow_html=True)
         render_sidebar_brand()
         owner_initials = "".join(part[0].upper() for part in display_name.split()[:2]) or "AO"
@@ -1062,10 +1073,11 @@ with st.sidebar:
             nav_button("Monthly Report", "UploadMonthly", ":material/upload_file:")
             nav_button("Daily Report", "UploadDaily", ":material/description:")
 
-        admin_expanded = st.session_state.page in ("UserAccess", "DataManagement")
+        admin_expanded = st.session_state.page in ("UserAccess", "DataManagement", "AuditLog")
         with st.expander("Administration", expanded=admin_expanded, icon=":material/admin_panel_settings:"):
             nav_button("User Access", "UserAccess", ":material/manage_accounts:")
             nav_button("Data Management", "DataManagement", ":material/database:")
+            nav_button("Audit Log", "AuditLog", ":material/history:")
 
         nav_button("My Profile", "MyProfile", ":material/account_circle:")
         authenticator.logout("Sign Out", "sidebar")
@@ -1194,7 +1206,7 @@ def period_data(period, period_type, force_agency=None):
 
 
 def agency_filter_widget(df, key):
-    if not is_owner_or_manager:
+    if not can_view_full_tenant:
         return utils.filter_by_agency(df, user_agency), user_agency
     agencies = ["All", "Agency Direct"] + load_agencies(business_id)
     choice = st.selectbox("Recruitment source", agencies, key=key)
@@ -1568,13 +1580,13 @@ elif st.session_state.page == "MyProfile":
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
-    overview_title = "My Dashboard" if is_owner_or_manager else f"{html.escape(str(user_agency))} overview"
-    overview_subtitle = (f"Performance across {html.escape(str(business_name))}'s agency network" if is_owner_or_manager
+    overview_title = "My Dashboard" if can_view_full_tenant else f"{html.escape(str(user_agency))} overview"
+    overview_subtitle = (f"Performance across {html.escape(str(business_name))}'s agency network" if can_view_full_tenant
                          else "Performance for your assigned broadcaster roster")
     st.markdown(f"""
     <div class="overview-hero">
       <div>
-        <div class="overview-eyebrow">{'Agency owner' if is_owner_or_manager else 'Sub-Agency workspace'}</div>
+        <div class="overview-eyebrow">{'Agency owner' if can_view_full_tenant else 'Sub-Agency workspace'}</div>
         <h1>{overview_title}</h1>
         <p>{overview_subtitle}</p>
       </div>
@@ -1588,7 +1600,7 @@ elif st.session_state.page == "Admin":
         st.warning("No monthly report uploaded yet. Go to **Upload report** in the sidebar.")
         st.stop()
 
-    if is_owner_or_manager:
+    if can_view_full_tenant:
         filter_month, filter_agency = st.columns(2)
         with filter_month:
             current_period = st.selectbox(
@@ -1606,16 +1618,16 @@ elif st.session_state.page == "Admin":
 
     previous_period = previous_period_of(current_period, "monthly")
     df_previous = period_data(previous_period, "monthly") if previous_period else pd.DataFrame()
-    scope_agency = agency_choice if is_owner_or_manager else user_agency
+    scope_agency = agency_choice if can_view_full_tenant else user_agency
     if not df_previous.empty:
         df_previous = utils.filter_by_agency(df_previous, scope_agency)
 
-    if is_owner_or_manager:
+    if can_view_full_tenant:
         attribution_all = utils.attribution_completeness(df_current_all)
 
     kpis = utils.compute_kpis(df_current)
     prev_kpis = utils.compute_kpis(df_previous) if not df_previous.empty else {}
-    n_agencies = max(1, len(load_agencies(business_id))) if is_owner_or_manager else 1
+    n_agencies = max(1, len(load_agencies(business_id))) if can_view_full_tenant else 1
     avg_dpb = round(kpis["diamonds_redeemed"] / kpis["broadcasters"], 1) if kpis["broadcasters"] else 0
     sub_commission_pct = (store.get_agency_commission(business_id, user_agency)
                           if is_sub_agency else None)
@@ -1678,7 +1690,7 @@ elif st.session_state.page == "Admin":
         overview_kpi_card("Diamonds redeemed", f"{kpis['diamonds_redeemed']:,}", "◇",
                           diamond_note, diamond_direction)
     with c4:
-        if is_owner_or_manager:
+        if can_view_full_tenant:
             overview_kpi_card("Agency earnings", f"${kpis['my_earnings_usd']:,.2f}", "$",
                               earning_note, earning_direction)
         elif sub_commission_usd is None:
@@ -1695,7 +1707,7 @@ elif st.session_state.page == "Admin":
                           days_note, days_direction)
     with c6:
         overview_kpi_card("Average diamonds per broadcaster", f"{avg_dpb:,.1f}", "↗",
-                          f"Across {n_agencies} active Sub-Agencies" if is_owner_or_manager else "Current roster average")
+                          f"Across {n_agencies} active Sub-Agencies" if can_view_full_tenant else "Current roster average")
     with c7:
         overview_kpi_card("New broadcasters", f"{int(df_current['is_new'].sum()):,}", "+",
                           "Added in the selected month")
@@ -1706,7 +1718,7 @@ elif st.session_state.page == "Admin":
 
     my_financials_panel = dashboard_panel("my_dashboard", "Financials")
     my_financials_panel.__enter__()
-    if is_owner_or_manager:
+    if can_view_full_tenant:
         direct_df = df_current_all[df_current_all["sub_agency"] == "Agency Direct"]
         partner_df = df_current_all[df_current_all["sub_agency"] != "Agency Direct"]
         direct_kpis = utils.compute_kpis(direct_df)
@@ -1802,7 +1814,7 @@ elif st.session_state.page == "Admin":
         </div>
         """, unsafe_allow_html=True)
     with i3:
-        if is_owner_or_manager:
+        if can_view_full_tenant:
             st.markdown(f"""
             <div class="insight-card">
               <div class="insight-label">Sub-Agency share</div>
@@ -1830,7 +1842,7 @@ elif st.session_state.page == "Admin":
     at_risk_label = "broadcaster" if len(at_risk_df) == 1 else "broadcasters"
     if len(at_risk_df) > 0:
         with st.expander(f"{len(at_risk_df)} {at_risk_label} earned diamonds last period and streamed 0 days this period"):
-            at_risk_columns = (["broadcaster_name", "sub_agency"] if is_owner_or_manager
+            at_risk_columns = (["broadcaster_name", "sub_agency"] if can_view_full_tenant
                                else ["broadcaster_name"])
             st.dataframe(
                 at_risk_df[at_risk_columns].reset_index(drop=True),
@@ -1906,7 +1918,7 @@ elif st.session_state.page == "Admin":
                     mime="text/csv", width="stretch",
                 )
     with outlook_right:
-        if is_owner_or_manager:
+        if can_view_full_tenant:
             comparison_rows = []
             agency_details = store.get_agency_details(business_id)
             rates = {row["agency_name"]: (None if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
@@ -2039,7 +2051,7 @@ elif st.session_state.page == "Admin":
     if top5.empty:
         st.info("No broadcaster performance data is available for this selection yet.")
     else:
-        cols = ["broadcaster_name", "sub_agency", "diamonds_redeemed", "streaming_days"] if is_owner_or_manager \
+        cols = ["broadcaster_name", "sub_agency", "diamonds_redeemed", "streaming_days"] if can_view_full_tenant \
             else ["broadcaster_name", "diamonds_redeemed", "streaming_days"]
         with st.container(border=True):
             st.dataframe(
@@ -2050,8 +2062,8 @@ elif st.session_state.page == "Admin":
 
 # ================================================================ STATISTICS
 elif st.session_state.page == "Statistics":
-    if not is_owner_or_manager:
-        st.error("Owner or Agency Manager access only.")
+    if not can_view_full_tenant:
+        st.error("Owner, Agency Manager, or Auditor access only.")
         st.stop()
     st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
     st.markdown("""
@@ -2218,6 +2230,24 @@ elif st.session_state.page == "Statistics":
         file_name=f"broadcaster_dashboard_{current_period}.csv", mime="text/csv",
     )
     broadcaster_directory_panel.__exit__(None, None, None)
+
+# =============================================================== AUDIT LOG
+elif st.session_state.page == "AuditLog":
+    if not can_view_full_tenant:
+        st.error("Owner, Agency Manager, or Auditor access only.")
+        st.stop()
+    st.title("Audit Log")
+    st.caption(
+        "Recent sign-ins and security-sensitive changes in this agency workspace. "
+        "Read-only - the same activity Owner sees embedded in Data Management, "
+        "surfaced here as its own page for Auditor, which doesn't have access "
+        "to Data Management's write actions."
+    )
+    audit_df = store.get_security_audit(business_id, limit=200)
+    if audit_df.empty:
+        st.info("No security activity has been recorded yet.")
+    else:
+        st.dataframe(audit_df, hide_index=True, width="stretch")
 
 # ================================================================== PAYOUTS
 elif st.session_state.page == "Payouts":
@@ -2562,13 +2592,13 @@ elif st.session_state.page == "Payouts":
 
 # =============================================================== BROADCASTERS
 elif st.session_state.page == "Broadcasters":
-    st.title("Broadcasters" if is_owner_or_manager else "My Broadcasters")
+    st.title("Broadcasters" if can_view_full_tenant else "My Broadcasters")
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
     if not monthly_periods:
         st.warning("No monthly report uploaded yet.")
         st.stop()
     current_period = st.selectbox("Month", monthly_periods, key="bl_month")
-    force = None if is_owner_or_manager else user_agency
+    force = None if can_view_full_tenant else user_agency
     df = period_data(current_period, "monthly", force_agency=force)
     prev_period = previous_period_of(current_period, "monthly")
     df_prev = period_data(prev_period, "monthly", force_agency=force) if prev_period else pd.DataFrame()
@@ -2584,14 +2614,14 @@ elif st.session_state.page == "Broadcasters":
     col1, col2 = st.columns(2)
     with col1:
         agency_pick = st.selectbox("Recruitment source", ["All", "Agency Direct"] + load_agencies(business_id), key="bl_agency") \
-            if is_owner_or_manager else "All"
+            if can_view_full_tenant else "All"
     with col2:
         status_pick = st.multiselect("Status", sorted(df["status"].dropna().unique().tolist()), key="bl_status")
 
     view = df.copy()
     if search:
         view = view[view["broadcaster_name"].str.contains(search, case=False, na=False)]
-    if is_owner_or_manager and agency_pick != "All":
+    if can_view_full_tenant and agency_pick != "All":
         view = utils.filter_by_agency(view, agency_pick)
     if status_pick:
         view = view[view["status"].isin(status_pick)]
@@ -2607,7 +2637,7 @@ elif st.session_state.page == "Broadcasters":
     broadcaster_label = "broadcaster" if len(view) == 1 else "broadcasters"
     st.caption(f"{len(view)} {broadcaster_label}")
     show_cols = ["broadcaster_name", "sub_agency", "status", "diamonds_redeemed",
-                 "streaming_days", "diamonds_per_day", "growth_pct"] if is_owner_or_manager else \
+                 "streaming_days", "diamonds_per_day", "growth_pct"] if can_view_full_tenant else \
                 ["broadcaster_name", "status", "diamonds_redeemed", "streaming_days", "diamonds_per_day", "growth_pct"]
     event = st.dataframe(
         view[show_cols], hide_index=True, width='stretch',
@@ -2643,7 +2673,7 @@ elif st.session_state.page == "BroadcasterDetail":
     a_row = assignments[assignments["profile_url"] == profile_url] if not assignments.empty else assignments
     sub_agency = a_row.iloc[0]["sub_agency"] if not a_row.empty else "Agency Direct"
 
-    if not is_owner_or_manager and sub_agency != user_agency:
+    if not can_view_full_tenant and sub_agency != user_agency:
         st.error("You don't have access to this broadcaster.")
         st.stop()
 
@@ -3184,7 +3214,14 @@ elif st.session_state.page == "UserAccess":
         st.toast(password_reset_notice, icon="\u2705")
     st.title("User Access")
 
-    role_labels = {"sub_agency": "Sub-Agency", "agency_manager": "Agency Manager", "owner": "Agency Owner"}
+    # "auditor" is here so an Auditor account (granted via SQL for now - no
+    # UI to create one yet, same as Trial Viewer) displays correctly if it
+    # shows up in the Existing Users list below, even though it's not offered
+    # in the create-user dropdown further down.
+    role_labels = {
+        "sub_agency": "Sub-Agency", "agency_manager": "Agency Manager",
+        "owner": "Agency Owner", "auditor": "Auditor",
+    }
     # An Agency Manager can only create Recruiter (sub_agency) logins - never a
     # peer Manager or an Owner. Only an Owner can create another Owner or a
     # Manager. Enforces "no role can invite a role above or equal to itself"
@@ -3239,7 +3276,7 @@ elif st.session_state.page == "UserAccess":
             with st.container(border=True):
                 c1, c2, c3 = st.columns([3, 2, 2])
                 agency_bit = f" \u00b7 {r['sub_agency']}" if r["sub_agency"] else ""
-                role_label = role_labels.get(r["role"], "Agency Owner")
+                role_label = role_labels.get(r["role"], str(r["role"]).replace("_", " ").title())
                 c1.markdown(f"**{r['name']}**  \n`{r['username']}` \u00b7 {role_label}{agency_bit}")
                 c2.markdown(f"Status: **{r['status']}**")
                 # An Agency Manager can only suspend/reset a Recruiter (sub_agency)

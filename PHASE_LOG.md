@@ -833,3 +833,61 @@ and prod's) back to `sub_agency` — asked the user to confirm both are
 done, not verified in this log yet. Auditor role, Broadcaster role, and
 Trial Viewer's `expires_at` login-time enforcement remain separate,
 not-yet-started slices of Phase 3b.
+
+---
+
+## 2026-08-22 — Phase 3b, second slice: Auditor is a real, read-only role
+
+**No database change needed** — `auditor`'s permissions were already
+seeded in Phase 3a (`agency.view_dashboard`, `audit.view`, `report.export`,
+`profile.manage`). Pure `app.py` work, same as Agency Manager.
+
+**What was done:**
+- `current_user_context()`'s role whitelist now also accepts `auditor`.
+- Added `is_auditor` and a new, broader `can_view_full_tenant = is_owner or
+  is_manager or is_auditor` variable — deliberately distinct from
+  `is_owner_or_manager`, which stays reserved for pages Manager can *act* on
+  but Auditor (zero write rights) cannot: Assign, Upload, User Access.
+- Replaced `is_owner_or_manager` with `can_view_full_tenant` at 23 sites
+  that are pure viewing (dashboard, Statistics, Broadcasters,
+  BroadcasterDetail, the sidebar's own rendering) — left the 5 write-gated
+  sites (Assign's gate, the daily-upload restriction, the upload
+  confirmation's internal logic, User Access's gate) on the narrower
+  `is_owner_or_manager` so Auditor never gets them.
+- `allowed_pages_by_role["auditor"]` = Admin, Statistics, Broadcasters,
+  BroadcasterDetail, **AuditLog** (new), MyProfile. No Assign, Upload, or
+  User Access at all.
+- **New `AuditLog` page** — the `security_audit` table already had a
+  viewer, but it was embedded inside the Owner-only Data Management page
+  alongside a destructive "Clear This Period" action. Rather than try to
+  carve out read-only access within that page (real risk of leaking the
+  destructive control), added a standalone read-only page reusing the same
+  `store.get_security_audit()` call. Owner/Manager still see their
+  original embedded version in Data Management unchanged; Auditor gets
+  this new page instead. Sidebar nav link added under "Administration" —
+  relies on `nav_button()`'s self-filtering (added during the Agency
+  Manager bug fix) to only appear for roles that actually have it.
+- Fixed a latent display bug while in there: `role_labels` in the User
+  Access page didn't have an "auditor" entry, so an Auditor row in the
+  existing-users list would have silently mislabeled as "Agency Owner."
+  Fixed, and changed the fallback default from a specific (wrong) label to
+  a generic title-cased version of the actual role string, so any future
+  unlisted role fails safely instead of misleadingly.
+- **No UI to grant Auditor access yet** — same as Trial Viewer, this is a
+  SQL-only promotion for now (`UPDATE memberships SET role = 'auditor'
+  WHERE ...`), consistent with how Agency Manager was tested before a
+  "Create User" flow existed for it either.
+
+**Expected result:** A promoted `auditor` test account should see the
+sidebar with the same page set as Agency Manager minus Assign/Upload/User
+Access, plus AuditLog. On Admin/Statistics/Broadcasters/BroadcasterDetail,
+sees the full tenant view (like Owner/Manager), not a scoped one. AuditLog
+shows the same security activity data Owner sees in Data Management.
+Cannot reach Assign, Upload, User Access, CreateAgency, DataManagement,
+SubAgencies, or Payouts — page-level redirect blocks all of them.
+
+**How to verify:** Same pattern as Agency Manager — promote an existing
+test `sub_agency` login to `auditor` via SQL, log in, walk through
+"Expected result" above, then revert.
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
