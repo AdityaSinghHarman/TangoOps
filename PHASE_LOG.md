@@ -993,4 +993,19 @@ UPDATE memberships SET role = 'sub_agency', expires_at = NULL
 WHERE username = '<username>' AND business_id = '<business_id>';
 ```
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed, pushed to dev (`efc0d01`).
+
+---
+
+## 2026-08-22 — Trial Viewer slice fully verified in dev, including the CSS toolbar fix
+
+**Confirmed by the user:** "tested all running as expected" — both
+scenarios passed: a not-yet-expired grant logs in with the correct
+restricted page set, full tenant view, no Statistics download button, and
+**no dataframe-toolbar CSV icon anywhere** (the one thing in this slice
+that genuinely needed visual confirmation rather than being provable from
+code alone — confirmed working). An expired grant is denied with the
+generic message, same as any other invalid login.
+
+**Status: Trial Viewer slice of Phase 3b — done, verified in dev.** Ready
+for prod, same rollout pattern as Agency Manager and Auditor.
