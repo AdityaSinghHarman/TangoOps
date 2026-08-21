@@ -1101,4 +1101,18 @@ UPDATE memberships SET role = 'sub_agency', profile_url = NULL
 WHERE username = '<username>' AND business_id = '<business_id>';
 ```
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed, pushed to dev (`cad95b3`).
+
+---
+
+## 2026-08-22 — Broadcaster (first slice) fully verified in dev
+
+**Confirmed by the user:** "tested as expected" — lands directly on own
+performance page, no Agency revenue or Assignment history shown, sidebar
+shows exactly My Performance/My Profile with a working sign-out (the bug
+caught and fixed before testing this time).
+
+**Status: Broadcaster's first slice of Phase 3b — done, verified in
+dev.** Ready for prod, same rollout pattern as the other three roles —
+this one needs the migration run there too (real schema change, unlike
+Auditor/Trial Viewer).
