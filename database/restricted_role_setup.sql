@@ -1,24 +1,32 @@
 -- TangoOps restricted runtime role setup.
 -- Run once in the Supabase SQL Editor as the database administrator.
--- Replace the password placeholder before running. Never commit the real value.
+-- Replace the password placeholder before the FIRST run only — see the note
+-- on CREATE ROLE below. Never commit the real value.
 --
--- Re-run this whole script (safe/idempotent — GRANT and CREATE POLICY here are
--- both re-runnable) any time RUNTIME_TABLES in store.py gains a new table, so
--- tangoops_app is never missing a grant on a table the app actually queries.
+-- Safe to re-run in full any time RUNTIME_TABLES in store.py gains a new
+-- table, so tangoops_app is never missing a grant on a table the app
+-- actually queries. 22 Aug 2026: the CREATE ROLE step below is now
+-- conditional specifically so the whole file can be re-run without erroring
+-- on "role already exists" once the role has been created once.
 -- 21 Aug 2026: added 'memberships' (was missed when that table was first
 -- added) and 'subscriptions'.
 
-CREATE ROLE tangoops_app
-WITH
-    LOGIN
-    PASSWORD 'REPLACE_WITH_YOUR_NEW_PASSWORD'
-    NOSUPERUSER
-    NOCREATEDB
-    NOCREATEROLE
-    NOINHERIT
-    NOREPLICATION
-    NOBYPASSRLS
-    CONNECTION LIMIT 10;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tangoops_app') THEN
+        CREATE ROLE tangoops_app
+        WITH
+            LOGIN
+            PASSWORD 'REPLACE_WITH_YOUR_NEW_PASSWORD'
+            NOSUPERUSER
+            NOCREATEDB
+            NOCREATEROLE
+            NOINHERIT
+            NOREPLICATION
+            NOBYPASSRLS
+            CONNECTION LIMIT 10;
+    END IF;
+END $$;
 
 GRANT CONNECT ON DATABASE postgres TO tangoops_app;
 GRANT USAGE ON SCHEMA public TO tangoops_app;
