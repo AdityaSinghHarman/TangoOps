@@ -1716,9 +1716,14 @@ period update immediately and a plan-gated feature (e.g. the Insights tab
 from the `ai_features` slice) reflects the new plan without any other
 change.
 
-**Status:** Implemented, compiled, self-reviewed. Requires a migration +
-grant-script run on dev before it can be tested (new table). Not yet
-pushed to dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `b103ed1`. Migration and grant-script run against dev's database
+by the user 2026-08-22, both confirmed successful. Tested on dev: Plan &
+Billing panel loads, a payment was recorded and the plan/status/period
+updated immediately, the new plan reflected live in the `ai_features`
+gate with no separate step, Payment history showed the recorded payment,
+and Pioneer correctly offered only the annual billing cycle. Result:
+**tested as expected.** Not yet pushed to prod.
 
 ---
 
@@ -1739,4 +1744,7 @@ invite in that window.
 **Fix:** added `load_business_memberships.clear()` to `refresh_caches()`
 in `app.py`, alongside the other `.clear()` calls. One-line diff.
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `85cf098`. No independent test needed - a one-line cache-clear
+fix, exercised implicitly by the Phase 6 slice testing above (same
+deploy). Not yet pushed to prod.
