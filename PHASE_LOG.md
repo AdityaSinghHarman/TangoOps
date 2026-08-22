@@ -1723,7 +1723,10 @@ Billing panel loads, a payment was recorded and the plan/status/period
 updated immediately, the new plan reflected live in the `ai_features`
 gate with no separate step, Payment history showed the recorded payment,
 and Pioneer correctly offered only the annual billing cycle. Result:
-**tested as expected.** Not yet pushed to prod.
+**tested as expected.** Pushed to `main` at commit `6084135`
+(fast-forward from `11f6734`), migration and grant script run against
+prod's database by the user 2026-08-22, tested on prod: **tested as
+expected.** **Live and verified on both dev and prod.**
 
 ---
 
@@ -1745,6 +1748,7 @@ invite in that window.
 in `app.py`, alongside the other `.clear()` calls. One-line diff.
 
 **Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
-commit `85cf098`. No independent test needed - a one-line cache-clear
-fix, exercised implicitly by the Phase 6 slice testing above (same
-deploy). Not yet pushed to prod.
+commit `85cf098`, then to `main` at commit `6084135` alongside the Phase
+6 slice above. No independent test needed - a one-line cache-clear fix,
+exercised implicitly by the Phase 6 slice testing on both dev and prod
+(same deploys). **Live on both dev and prod.**
