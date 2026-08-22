@@ -1970,4 +1970,6 @@ step's real test is a full manual click-through of every page/role in
 dev, confirming nothing changed, not a new feature to try out.
 
 **Status:** Implemented, compiled, self-reviewed, independently audited
-twice. Not yet pushed to dev.
+twice. Pushed to `dev` at commit `2dfbdaa`. Tested on dev by the user
+2026-08-22: clicked through pages/roles, confirmed no behavior change.
+Result: **tested as expected.** Not yet pushed to prod.
