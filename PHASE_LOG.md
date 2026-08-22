@@ -1972,4 +1972,7 @@ dev, confirming nothing changed, not a new feature to try out.
 **Status:** Implemented, compiled, self-reviewed, independently audited
 twice. Pushed to `dev` at commit `2dfbdaa`. Tested on dev by the user
 2026-08-22: clicked through pages/roles, confirmed no behavior change.
-Result: **tested as expected.** Not yet pushed to prod.
+Result: **tested as expected.** Pushed to `main` at commit `d759ca5`
+(fast-forward from `1853b5c`), tested on prod 2026-08-22: **tested as
+expected, no behavior change.** **Step 1 live and verified on both dev
+and prod.** Step 2 (flipping RLS enforcement on) is next.
