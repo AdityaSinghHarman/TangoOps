@@ -999,6 +999,42 @@ if is_trial_viewer:
     )
 business_id = user_business_id
 
+# Phase 7: subscriptions.status is advanced by an external scheduled job
+# (scripts/run_lifecycle_checks.py), not by the app itself - this banner
+# just reads whatever that job last wrote and shows it, on every page, to
+# everyone logged into this tenant.
+#
+# Phase 7 follow-up (restricted-state enforcement): is_restricted gates
+# exactly the four actions Section 07 names as blocked while restricted -
+# create (Sub-Agency), invite (Create User), upload (CSV), export
+# (CSV/PDF) - decided narrowly on purpose (user, 2026-08-22): other write
+# actions (assign broadcasters, mark payouts paid, edit commission rates,
+# archive/clear periods, disable/enable/reset a user's password) aren't
+# named in the spec and stay unblocked, since some of them (like
+# disabling a compromised login) are arguably security-relevant
+# regardless of billing status.
+is_restricted = False
+if business_id:
+    _tenant_subscription = load_subscription(business_id)
+    if _tenant_subscription is not None:
+        if _tenant_subscription["status"] == "grace":
+            st.warning(
+                f"Payment overdue since {_tenant_subscription['current_period_end']}. "
+                "Please arrange payment soon to avoid a move to restricted access.",
+                icon="⚠️",
+            )
+        elif _tenant_subscription["status"] == "restricted":
+            is_restricted = True
+            st.error(
+                f"This account is marked restricted due to non-payment "
+                f"(since {_tenant_subscription['current_period_end']}). "
+                "Creating Sub-Agencies or users, uploading reports, and "
+                "exporting data are unavailable until payment is recorded. "
+                "Contact StreamOperiq to restore full access.",
+                icon="🔒",
+            )
+can_export = can_export and not is_restricted
+
 login_audit_key = f"_login_audited_{username}"
 if not st.session_state.get(login_audit_key):
     store.log_security_event(
@@ -1383,30 +1419,6 @@ def previous_period_of(period, period_type):
     remaining = periods[idx + 1:]
     return remaining[0] if remaining else None
 
-
-# Phase 7, first slice: subscriptions.status is advanced by an external
-# scheduled job (scripts/run_lifecycle_checks.py), not by the app itself -
-# this banner just reads whatever that job last wrote and shows it, on
-# every page, to everyone logged into this tenant. Informational only for
-# now - no action is actually blocked yet when restricted (that's a
-# separate, not-yet-built slice), so the copy here deliberately doesn't
-# claim otherwise.
-if business_id:
-    _tenant_subscription = load_subscription(business_id)
-    if _tenant_subscription is not None:
-        if _tenant_subscription["status"] == "grace":
-            st.warning(
-                f"Payment overdue since {_tenant_subscription['current_period_end']}. "
-                "Please arrange payment soon to avoid a move to restricted access.",
-                icon="⚠️",
-            )
-        elif _tenant_subscription["status"] == "restricted":
-            st.error(
-                f"This account is marked restricted due to non-payment "
-                f"(since {_tenant_subscription['current_period_end']}). "
-                "Contact StreamOperiq to restore full access.",
-                icon="🔒",
-            )
 
 # ============================================================== BUSINESSES
 if st.session_state.page == "Businesses":
@@ -2195,21 +2207,22 @@ elif st.session_state.page == "Admin":
                 statement["commission_pct"] = sub_commission_pct
                 statement["commission_usd"] = (statement["gross_value_usd"] * sub_commission_pct / 100
                                                 if sub_commission_pct is not None else None)
-                st.download_button(
-                    "Download commission statement", utils.safe_csv_bytes(statement),
-                    file_name=f"commission_statement_{user_agency}_{current_period}.csv",
-                    mime="text/csv", width="stretch",
-                )
-                if pdf_export_enabled:
+                if can_export:
                     st.download_button(
-                        "Download commission statement (PDF)",
-                        utils.safe_pdf_bytes(
-                            statement, "Commission Statement",
-                            f"{html.escape(str(user_agency))} — {current_period}",
-                        ),
-                        file_name=f"commission_statement_{user_agency}_{current_period}.pdf",
-                        mime="application/pdf", width="stretch",
+                        "Download commission statement", utils.safe_csv_bytes(statement),
+                        file_name=f"commission_statement_{user_agency}_{current_period}.csv",
+                        mime="text/csv", width="stretch",
                     )
+                    if pdf_export_enabled:
+                        st.download_button(
+                            "Download commission statement (PDF)",
+                            utils.safe_pdf_bytes(
+                                statement, "Commission Statement",
+                                f"{html.escape(str(user_agency))} — {current_period}",
+                            ),
+                            file_name=f"commission_statement_{user_agency}_{current_period}.pdf",
+                            mime="application/pdf", width="stretch",
+                        )
     with outlook_right:
         if can_view_full_tenant:
             comparison_rows = []
@@ -2739,22 +2752,23 @@ elif st.session_state.page == "Payouts":
         with action_right:
             statement_export = payout_rows.copy()
             statement_export.insert(0, "reporting_month", current_period)
-            st.download_button(
-                "Export Statement", utils.safe_csv_bytes(statement_export),
-                file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
-                width="stretch", icon=":material/download:", key="payout_export_summary",
-            )
-            if pdf_export_enabled and len(statement_export) <= utils.MAX_PDF_ROWS:
+            if can_export:
                 st.download_button(
-                    "Export Statement (PDF)",
-                    utils.safe_pdf_bytes(
-                        statement_export, "Broadcaster Payout Statement",
-                        f"{html.escape(str(business_name))} — {current_period}",
-                    ),
-                    file_name=f"broadcaster_payout_statement_{current_period}.pdf",
-                    mime="application/pdf", width="stretch",
-                    icon=":material/download:", key="payout_export_summary_pdf",
+                    "Export Statement", utils.safe_csv_bytes(statement_export),
+                    file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
+                    width="stretch", icon=":material/download:", key="payout_export_summary",
                 )
+                if pdf_export_enabled and len(statement_export) <= utils.MAX_PDF_ROWS:
+                    st.download_button(
+                        "Export Statement (PDF)",
+                        utils.safe_pdf_bytes(
+                            statement_export, "Broadcaster Payout Statement",
+                            f"{html.escape(str(business_name))} — {current_period}",
+                        ),
+                        file_name=f"broadcaster_payout_statement_{current_period}.pdf",
+                        mime="application/pdf", width="stretch",
+                        icon=":material/download:", key="payout_export_summary_pdf",
+                    )
 
     with rule_col:
         with st.container(border=True):
@@ -2881,21 +2895,22 @@ elif st.session_state.page == "Payouts":
             "status": st.column_config.TextColumn("Payment Status"),
         },
     )
-    st.download_button(
-        "Download CSV Statement", utils.safe_csv_bytes(payout_rows[statement_columns]),
-        file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
-        icon=":material/download:", key="payout_export_statement",
-    )
-    if pdf_export_enabled and len(payout_rows) <= utils.MAX_PDF_ROWS:
+    if can_export:
         st.download_button(
-            "Download PDF Statement",
-            utils.safe_pdf_bytes(
-                payout_rows[statement_columns], "Broadcaster Payout Statement",
-                f"{html.escape(str(business_name))} — {current_period}",
-            ),
-            file_name=f"broadcaster_payout_statement_{current_period}.pdf", mime="application/pdf",
-            icon=":material/download:", key="payout_export_statement_pdf",
+            "Download CSV Statement", utils.safe_csv_bytes(payout_rows[statement_columns]),
+            file_name=f"broadcaster_payout_statement_{current_period}.csv", mime="text/csv",
+            icon=":material/download:", key="payout_export_statement",
         )
+        if pdf_export_enabled and len(payout_rows) <= utils.MAX_PDF_ROWS:
+            st.download_button(
+                "Download PDF Statement",
+                utils.safe_pdf_bytes(
+                    payout_rows[statement_columns], "Broadcaster Payout Statement",
+                    f"{html.escape(str(business_name))} — {current_period}",
+                ),
+                file_name=f"broadcaster_payout_statement_{current_period}.pdf", mime="application/pdf",
+                icon=":material/download:", key="payout_export_statement_pdf",
+            )
     payout_statements_panel.__exit__(None, None, None)
 
     payout_history_panel = dashboard_panel("payout_dashboard", "History")
@@ -3316,20 +3331,21 @@ elif st.session_state.page == "SubAgencies":
         statement["commission_pct"] = selected_rate
         statement["commission_due"] = (statement["gross_redeemed_value"] * float(selected_rate) / 100
                                        if selected_rate is not None else None)
-        st.download_button(
-            "Download recruiter statement", utils.safe_csv_bytes(statement),
-            file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.csv", mime="text/csv",
-        )
-        if pdf_export_enabled and len(statement) <= utils.MAX_PDF_ROWS:
+        if can_export:
             st.download_button(
-                "Download recruiter statement (PDF)",
-                utils.safe_pdf_bytes(
-                    statement, "Recruiter Statement",
-                    f"{html.escape(str(selected_recruiter))} — {current_period}",
-                ),
-                file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.pdf",
-                mime="application/pdf",
+                "Download recruiter statement", utils.safe_csv_bytes(statement),
+                file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.csv", mime="text/csv",
             )
+            if pdf_export_enabled and len(statement) <= utils.MAX_PDF_ROWS:
+                st.download_button(
+                    "Download recruiter statement (PDF)",
+                    utils.safe_pdf_bytes(
+                        statement, "Recruiter Statement",
+                        f"{html.escape(str(selected_recruiter))} — {current_period}",
+                    ),
+                    file_name=f"recruiter_statement_{selected_recruiter}_{current_period}.pdf",
+                    mime="application/pdf",
+                )
     else:
         st.info("No Sub-Agency roster is available yet.")
     recruiter_roster_panel.__exit__(None, None, None)
@@ -3389,6 +3405,13 @@ elif st.session_state.page == "Assign":
 elif st.session_state.page == "CreateAgency":
     if not is_owner:
         st.error("Owner access only.")
+        st.stop()
+    if is_restricted:
+        st.error(
+            "This account is restricted due to non-payment. Creating a new "
+            "Sub-Agency is unavailable until payment is recorded. Existing "
+            "Sub-Agencies remain visible on the Recruiter Dashboard."
+        )
         st.stop()
     create_agency_success = st.session_state.pop("_create_agency_success", None)
     if create_agency_success:
@@ -3485,6 +3508,12 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
     ptype = "monthly" if st.session_state.page == "UploadMonthly" else "daily"
     if not is_owner_or_manager and ptype == "daily":
         st.error("Owner or Agency Manager access only.")
+        st.stop()
+    if is_restricted:
+        st.error(
+            "This account is restricted due to non-payment. Uploading reports "
+            "is unavailable until payment is recorded."
+        )
         st.stop()
     upload_success_key = f"_upload_success_{ptype}"
     upload_success = st.session_state.pop(upload_success_key, None)
@@ -3609,7 +3638,12 @@ elif st.session_state.page == "UserAccess":
 
     if st.button("Create User", type="primary"):
         limit_error = check_membership_limit(business_id, new_role)
-        if not is_valid_email(new_email):
+        if is_restricted:
+            st.error(
+                "This account is restricted due to non-payment. Inviting new "
+                "users is unavailable until payment is recorded."
+            )
+        elif not is_valid_email(new_email):
             st.error("Enter a valid email address.")
         elif is_bootstrap_identity(new_email):
             st.error("That email is reserved for the Platform Administrator. Use a different user email.")

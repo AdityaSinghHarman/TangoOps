@@ -2059,3 +2059,81 @@ connection string: **PASS** for all 11 tables. Then the same page/role
 click-through confirmed no regression. Result: **tested as expected.**
 **Phase 8's first slice (RLS tenant isolation) is now live and proven on
 both dev and prod.**
+
+---
+
+## Phase 7 follow-up: restricted-state enforcement (the four named actions)
+
+The Phase 7 banner slice was informational only - a restricted tenant saw
+a warning but nothing was actually blocked. This slice makes the
+restriction real.
+
+**Scope confirmed with the user first**: Section 07 names exactly four
+blocked actions while restricted - create, upload, export, invite. Other
+write actions in the app (assigning broadcasters, marking payouts paid,
+editing a Sub-Agency's commission rate, archiving/clearing report
+periods, disabling/enabling a user or resetting their password) aren't
+named in the spec and were **deliberately left unblocked** in this slice
+- some of them (disabling a compromised login, say) are arguably
+security-relevant regardless of billing status, and broadening scope
+without a named basis risked blocking something a restricted tenant
+legitimately still needs to do.
+
+**What was done, all in `app.py`, no schema change:**
+- `is_restricted` computed once, right after `business_id` is resolved
+  (moved up from where the Phase 7 banner used to compute it inline, so
+  it's available before `can_export` is finalized) - `True` only when
+  `subscriptions.status == 'restricted'` for this tenant.
+- `can_export = can_export and not is_restricted` - reuses the existing
+  Trial-Viewer export gate rather than inventing a parallel mechanism.
+  **Along the way, found and fixed a real gap**: of the app's five CSV/PDF
+  export locations, only the Statistics page's ever actually checked
+  `can_export` - the other four (Admin/commission statement, both Payouts
+  export buttons, the SubAgencies recruiter statement) had no export gate
+  at all, because until now only Trial Viewer needed one and Trial Viewer
+  can't reach those Owner-only pages. Wrapped all four in `if can_export:`
+  - this was a latent gap regardless of Phase 7 (an Owner-only page
+    correctly had no reason to gate exports before), now correctly closed
+  now that Owner-accessible pages can also be export-restricted.
+- **Create**: the CreateAgency page (100% about creating a Sub-Agency,
+  its one secondary read-only section - the existing-agency list - is
+  already duplicated on the Recruiter Dashboard) is blocked entirely with
+  a clear message when restricted, right after its existing role check.
+- **Upload**: the combined UploadMonthly/UploadDaily page, same pattern -
+  blocked entirely, right after its existing role check. This also
+  transitively blocks the auto-assign-on-upload path (`assign_broadcasters`
+  called from inside the upload flow), without needing a separate gate.
+- **Invite**: UserAccess's "Create User" button handler gets `is_restricted`
+  as the first condition in its existing validation chain (alongside the
+  email/password/limit checks already there) - the existing-users list
+  above it stays fully visible, only the create action itself is blocked.
+
+**Expected result:**
+1. A restricted tenant can still view every dashboard, report, and
+   existing list - nothing about *reading* data changes.
+2. Attempting to create a Sub-Agency, upload a report, export CSV/PDF
+   from any of the five locations, or create a user all show a clear
+   "restricted due to non-payment" message instead of succeeding.
+3. Assigning broadcasters, marking payouts paid, editing commission
+   rates, archiving/clearing periods, and disabling/enabling users or
+   resetting passwords all continue to work normally while restricted -
+   this is intentional, not a gap.
+4. Recording a new payment (Phase 6) resets `status` to `active`, which
+   immediately un-blocks all four actions on the tenant's next page load
+   - no separate unlock step.
+
+**How to verify:**
+```sql
+-- put a test business into restricted status directly (bypassing the
+-- 7-day grace wait, for testing purposes only):
+UPDATE subscriptions SET status='restricted' WHERE business_id = '<business_id>';
+```
+Log in as that tenant's Owner and confirm: the four actions above are
+blocked with a clear message; everything else (view dashboards, assign
+broadcasters, mark payouts paid, edit commission rates, archive a period,
+disable/enable a user) still works. Then revert:
+```sql
+UPDATE subscriptions SET status='active' WHERE business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
