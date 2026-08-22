@@ -9,10 +9,9 @@ import io
 import streamlit as st
 from PIL import Image
 
-from poster.categories import POSTER_TYPES, category_choices, get_category
+from poster.categories import DEFAULT_CATEGORY_KEY, POSTER_TYPES, category_choices, get_category
 from poster.config import (
     CREATIVE_FREEDOM_LEVELS,
-    DEFAULT_CATEGORY_KEY,
     DEFAULT_CREATIVE_FREEDOM,
     DEFAULT_LOGO_POSITION,
     DEFAULT_POSTER_SIZE_KEY,
