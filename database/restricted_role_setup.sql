@@ -13,6 +13,20 @@
 -- 'role_permissions' (Phase 3, schema/seed only), then 'plans',
 -- 'plan_features', 'entitlements' (Phase 4a, schema/seed only), then
 -- 'billing_events' (Phase 6, first slice).
+--
+-- 22 Aug 2026 (Phase 8, Step 2): real per-tenant row-level security for
+-- tangoops_app, not just the anon/authenticated block store.py's SCHEMA
+-- already handled. Tables are split into two policy groups below:
+--   - Tenant-scoped tables get a real predicate checking two session GUCs
+--     (app.current_business_id / app.bypass_tenant_scope) that store.py's
+--     _set_tenant_scope()/_reset_tenant_scope() set on every call (Step 1,
+--     already live). A call that sets neither gets zero rows - fails
+--     closed, not open.
+--   - businesses/subscriptions/users (business_id-as-own-PK, or read via
+--     a fetch-all-then-filter-in-pandas pattern in app.py) and the global
+--     catalogs (roles/permissions/role_permissions/plans/plan_features/
+--     profiles) keep the old permissive policy - deliberately deferred,
+--     see PHASE_LOG.md, not an oversight.
 
 DO $$
 BEGIN
@@ -35,15 +49,46 @@ GRANT CONNECT ON DATABASE postgres TO tangoops_app;
 GRANT USAGE ON SCHEMA public TO tangoops_app;
 REVOKE CREATE ON SCHEMA public FROM tangoops_app;
 
+-- Tenant-scoped tables: real isolation.
 DO $$
 DECLARE
     table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
-        'role_permissions', 'plans', 'plan_features', 'entitlements', 'agencies', 'raw_uploads',
-        'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
+        'memberships', 'entitlements', 'agencies', 'raw_uploads', 'assignments',
+        'assignment_log', 'archived_periods', 'security_audit',
         'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events'
+    ] LOOP
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO tangoops_app',
+            table_name
+        );
+        EXECUTE format(
+            'DROP POLICY IF EXISTS tangoops_app_runtime ON public.%I',
+            table_name
+        );
+        EXECUTE format(
+            $ddl$CREATE POLICY tangoops_app_runtime ON public.%I
+            FOR ALL TO tangoops_app
+            USING (business_id::text = current_setting('app.current_business_id', true)
+                   OR current_setting('app.bypass_tenant_scope', true) = 'true')
+            WITH CHECK (business_id::text = current_setting('app.current_business_id', true)
+                        OR current_setting('app.bypass_tenant_scope', true) = 'true')$ddl$,
+            table_name
+        );
+    END LOOP;
+END $$;
+
+-- Deferred tables: no per-tenant restriction for tangoops_app yet
+-- (business_id-as-own-PK / fetch-all-then-filter tables, or global
+-- catalogs with no business_id column at all - see the note above).
+DO $$
+DECLARE
+    table_name TEXT;
+BEGIN
+    FOREACH table_name IN ARRAY ARRAY[
+        'businesses', 'users', 'subscriptions', 'roles', 'permissions',
+        'role_permissions', 'plans', 'plan_features', 'profiles'
     ] LOOP
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO tangoops_app',

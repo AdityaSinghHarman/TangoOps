@@ -1976,3 +1976,64 @@ Result: **tested as expected.** Pushed to `main` at commit `d759ca5`
 (fast-forward from `1853b5c`), tested on prod 2026-08-22: **tested as
 expected, no behavior change.** **Step 1 live and verified on both dev
 and prod.** Step 2 (flipping RLS enforcement on) is next.
+
+---
+
+## Phase 8, first slice, Step 2: flip RLS enforcement on
+
+Step 1 (plumbing) is live and verified on both dev and prod with zero
+behavior change. This step actually turns tenant isolation on.
+
+**What was done:**
+- `database/restricted_role_setup.sql`'s single 20-table policy loop
+  split into two: the 11 in-scope tables now get a real predicate -
+  `business_id::text = current_setting('app.current_business_id', true)
+  OR current_setting('app.bypass_tenant_scope', true) = 'true'` - on both
+  `USING` and `WITH CHECK`; the 9 deferred tables (`businesses`, `users`,
+  `subscriptions`, and the six global catalogs) keep the old
+  `USING (true) WITH CHECK (true)`, unchanged. Used Postgres dollar-quoting
+  (`$ddl$...$ddl$`) for the new policy's `format()` string instead of
+  doubled single-quote escaping - much easier to verify by eye given how
+  many literal single quotes the predicate itself needs (`'app.current_business_id'`,
+  `'true'`, etc.) - a real correctness risk with the old escaping style
+  that dollar-quoting sidesteps entirely.
+- `store.py`'s own RLS-enable `DO` block (the one that does
+  `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and revokes
+  `anon`/`authenticated`) needed **no change** - that part applies
+  uniformly to all 20 tables regardless of which policy `tangoops_app`
+  gets, so it already covered everything correctly.
+- New `scripts/verify_tenant_isolation.py` - the actual proof, not just an
+  assertion. Creates two throwaway businesses (A, B) as the restricted
+  `tangoops_app` role, inserts one row into every one of the 11 in-scope
+  tables for each, then: (1) scopes the session to business A only and
+  confirms every table shows **only** A's row, never B's; (2) sets
+  `admin_scope` and confirms both are visible (the legitimate
+  platform-admin path still works); (3) resets to neither GUC set and
+  confirms an unscoped read sees **zero** rows in every table (the
+  fail-closed default, proven, not assumed). Everything runs inside one
+  transaction, always rolled back - same safety pattern as
+  `smoke_test_runtime_database.py`.
+
+**Rollback path, if anything goes wrong**: re-run the *old* single-loop
+version of the grant script (the one with `USING (true) WITH CHECK (true)`
+for all 20 tables, no split) to instantly revert to permissive - no app
+code change needed, since Step 1's plumbing is harmless either way.
+
+**Expected result:**
+1. `scripts/verify_tenant_isolation.py` run against dev's database prints
+   `PASS` for all 11 tables.
+2. The full manual click-through from Step 1 still shows identical
+   behavior for every normal (single-tenant) user - RLS enforcement only
+   matters when a query would have crossed tenants, which the app's own
+   `WHERE business_id=%s` clauses were already preventing; this step adds
+   a backstop, it doesn't change what a well-behaved query returns.
+
+**How to verify:**
+```bash
+python3 scripts/verify_tenant_isolation.py
+```
+Then repeat the same manual page/role click-through as Step 1's test.
+
+**Status:** Implemented, compiled, self-reviewed. Requires the grant
+script to be re-run against dev before it takes effect (policy-only
+change, no new table) - not yet pushed to dev.
