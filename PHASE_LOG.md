@@ -1874,4 +1874,17 @@ dev's run status. After fixing the secret, tested on dev by the user
 `security_audit` event was logged, and confirmed the warning banner
 appeared when logged in as that tenant. Test data reverted afterward
 (`status` back to `active` with a fresh period, `is_demo` back to `true`).
-Result: **tested as expected.** Not yet pushed to prod.
+Result: **tested as expected.**
+
+Pushed to `main` at commit `4e13c4a` (a small history reconciliation was
+needed first: someone added the identical `lifecycle_checks.yml` directly
+on `main` via GitHub's web UI — most likely because the Actions
+"Run workflow" dispatch button only appears if the workflow file also
+exists on the default branch — which broke the usual fast-forward-only
+merge; resolved by merging that commit into `dev` first, no conflict
+since the content was byte-identical, then fast-forwarding `main` as
+normal). `PROD_TANGOOPS_DATABASE_URL` secret added by the user, tested on
+prod 2026-08-22: **tested as expected.** No migration/grant script was
+needed for this slice (no schema change - `subscriptions.status` already
+supported `grace`/`restricted` since Phase 2). **Live and verified on
+both dev and prod.**
