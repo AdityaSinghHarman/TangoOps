@@ -1349,6 +1349,7 @@ def refresh_caches():
     load_all_users_df.clear()
     load_businesses_df.clear()
     load_business_users.clear()
+    load_business_memberships.clear()
     load_profile.clear()
     load_payout_rules.clear()
     load_effective_payout_rules.clear()

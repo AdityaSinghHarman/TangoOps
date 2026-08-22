@@ -1719,3 +1719,24 @@ change.
 **Status:** Implemented, compiled, self-reviewed. Requires a migration +
 grant-script run on dev before it can be tested (new table). Not yet
 pushed to dev.
+
+---
+
+## Fix: refresh_caches() was missing load_business_memberships.clear()
+
+**Bug, not a new slice.** `load_business_memberships()` was added in the
+Phase 5 hard-cap-limits slice and is what `check_membership_limit()`
+reads to count active memberships against a tenant's plan limit - but it
+was never added to `refresh_caches()`. With a 30-second cache TTL, that
+meant right after creating or disabling a membership, `check_membership_limit()`
+could briefly undercount for up to 30 seconds - e.g. a Super Admin
+disabling a recruiter to free a seat, then immediately trying to invite a
+new one, could still get blocked by the stale (higher) count for a short
+window; more importantly the reverse direction (undercounting after a
+create) meant the hard cap could be briefly bypassable by one extra
+invite in that window.
+
+**Fix:** added `load_business_memberships.clear()` to `refresh_caches()`
+in `app.py`, alongside the other `.clear()` calls. One-line diff.
+
+**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
