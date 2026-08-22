@@ -2039,5 +2039,23 @@ commit `af10e47`. Grant script re-run against dev's database by the user
 2026-08-22. Tested on dev: `scripts/verify_tenant_isolation.py` printed
 **PASS** for all 11 tables (real cross-tenant read protection confirmed,
 not just asserted), then the same page/role click-through as Step 1
-confirmed no regression. Result: **tested as expected.** Not yet pushed
-to prod.
+confirmed no regression. Result: **tested as expected.** Pushed to `main`
+at commit `ddeabac` (fast-forward from `7bbfba8`), grant script re-run
+against prod's database by the user 2026-08-22.
+
+**First prod verification attempt failed** - `verify_tenant_isolation.py`
+reported every one of the 11 tables showing both test businesses
+regardless of scope, including the unscoped/fail-closed case, which
+should never happen if RLS were actually restricting anything. This
+matches the exact signature of a superuser/admin connection bypassing RLS
+entirely (Postgres superusers ignore RLS policies by default) - not a bug
+in the policy or the plumbing, which had already passed on dev with the
+identical code. Root cause confirmed: the script was run against prod
+using the wrong connection string (the admin one, not `tangoops_app`'s
+restricted one) - **the same class of credential mixup this project has
+hit multiple times before** (see the dev/prod pooler and password-reset
+incidents earlier in this log). Re-ran with the correct `tangoops_app`
+connection string: **PASS** for all 11 tables. Then the same page/role
+click-through confirmed no regression. Result: **tested as expected.**
+**Phase 8's first slice (RLS tenant isolation) is now live and proven on
+both dev and prod.**
