@@ -601,7 +601,13 @@ def _verify_runtime_permissions(conn):
 
 @st.cache_resource(show_spinner=False)
 def _pool():
-    p = pg_pool.SimpleConnectionPool(
+    # Perf/correctness fix: SimpleConnectionPool is explicitly documented by
+    # psycopg2 as not safe for concurrent getconn()/putconn() from multiple
+    # threads without external locking. This pool is a single st.cache_resource
+    # object shared by every concurrent Streamlit session, each running on its
+    # own thread - ThreadedConnectionPool is the variant built for exactly
+    # that, with the same 1-5 sizing.
+    p = pg_pool.ThreadedConnectionPool(
         1, 5, st.secrets["postgres"]["connection_string"],
         sslmode="require", connect_timeout=10,
     )
@@ -676,6 +682,14 @@ def _query(sql, params=None, columns=None, business_id=None, admin_scope=False):
                 cols = columns or [d[0] for d in cur.description]
             finally:
                 _reset_tenant_scope(cur)
+        # Perf/correctness fix: this never committed, so every SELECT left
+        # its transaction open on the pooled connection - autocommit is off,
+        # so nothing closed it until some later, unrelated call happened to
+        # commit on that same reused connection. Idle-in-transaction
+        # connections sitting in a shared pool can hold back Postgres's
+        # vacuum horizon and are a plausible contributor to the intermittent
+        # pooler auth/connection issues logged in PHASE_LOG.md.
+        conn.commit()
         return pd.DataFrame(rows, columns=cols)
     finally:
         p.putconn(conn)
@@ -1232,6 +1246,20 @@ def get_agencies(business_id: str) -> list:
         business_id=business_id,
     )
     return df["agency_name"].tolist() if not df.empty else []
+
+
+def get_agency_counts_by_business() -> dict:
+    """One cross-tenant query for the Platform Admin overview - perf fix
+    for what used to be an N+1 loop calling get_agencies() once per
+    business. admin_scope=True is appropriate here: this is the platform
+    admin's own cross-tenant summary view, not a tenant-scoped read."""
+    df = _query(
+        "SELECT business_id, COUNT(*) AS agency_count FROM agencies GROUP BY business_id",
+        admin_scope=True,
+    )
+    if df.empty:
+        return {}
+    return dict(zip(df["business_id"], df["agency_count"]))
 
 
 def get_agency_details(business_id: str) -> pd.DataFrame:

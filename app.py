@@ -712,6 +712,19 @@ def load_businesses_df():
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def load_agency_counts_by_business():
+    return store.get_agency_counts_by_business()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_database_role_posture():
+    # Underlying role privileges only ever change via a manual DB admin
+    # action, so a short cache here is a safe trade for removing this
+    # round trip from every single Businesses-page rerun.
+    return store.get_database_role_posture()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def load_all_memberships_df():
     return store.get_all_memberships()
 
@@ -761,7 +774,15 @@ def load_subscription(biz_id):
     return store.get_subscription(biz_id)
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def build_credentials():
+    # Perf fix: stauth.Hasher().hash() runs bcrypt, which is deliberately
+    # slow (~100s of ms). This function used to run uncached on every single
+    # script rerun for every user interaction - caching it means the
+    # bootstrap password is only re-hashed when this cache actually expires
+    # or is cleared, not on every click. refresh_caches() below clears this
+    # alongside load_all_users_df/load_businesses_df so a newly created or
+    # edited login can sign in immediately rather than waiting out the TTL.
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
     boot_username = str(boot["username"]).strip().lower()
@@ -1107,6 +1128,21 @@ elif st.session_state.get("page") not in allowed_pages_by_role[user_role]:
     st.session_state.page = default_page
     st.session_state.selected_profile_url = None
 
+# Reflects the logged-in agency in the URL (e.g. ?agency=north-talent) so a
+# bookmarked/shared link shows which tenant it's for. Cosmetic only - this
+# is always DERIVED from the already-authenticated business_id, never read
+# back to decide which tenant's data loads, so it can't be used to bypass
+# tenant isolation by editing the URL. Streamlit Cloud's shared single URL
+# doesn't support real per-tenant subdomains/paths (e.g. streamoperiq.com/
+# north-talent) without a custom domain + reverse proxy in front, which is
+# a separate infrastructure project, not a code change.
+if business_id and business_name:
+    _agency_slug = re.sub(r"[^a-z0-9]+", "-", business_name.strip().lower()).strip("-") or "agency"
+    if st.query_params.get("agency") != _agency_slug:
+        st.query_params["agency"] = _agency_slug
+elif "agency" in st.query_params:
+    del st.query_params["agency"]
+
 if "selected_profile_url" not in st.session_state:
     st.session_state.selected_profile_url = None
 
@@ -1319,6 +1355,21 @@ def load_agencies(biz_id):
     return store.get_agencies(biz_id)
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def load_agency_details(biz_id):
+    return store.get_agency_details(biz_id)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_security_audit(biz_id, limit=200):
+    return store.get_security_audit(biz_id, limit=limit)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_recent_platform_activity(limit=8):
+    return store.get_recent_platform_activity(limit)
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def load_business_users(biz_id):
     return store.get_users(biz_id)
@@ -1384,11 +1435,14 @@ def load_payout_statuses(biz_id, period):
 
 
 def refresh_caches():
+    build_credentials.clear()
     load_all_raw.clear()
     load_assignments.clear()
     load_agencies.clear()
     load_all_users_df.clear()
     load_businesses_df.clear()
+    load_agency_counts_by_business.clear()
+    load_agency_details.clear()
     load_business_users.clear()
     load_business_memberships.clear()
     load_profile.clear()
@@ -1397,6 +1451,15 @@ def refresh_caches():
     load_payout_statuses.clear()
     load_subscription.clear()
     load_billing_events.clear()
+
+
+def refresh_profile_cache():
+    # Perf fix: a display-name/avatar change only touches the profiles
+    # table, but every call site used to call the full refresh_caches()
+    # (13 caches, including the full broadcaster roster - load_all_raw -
+    # and assignments/agencies), forcing an expensive unrelated re-fetch on
+    # the next page for a change that only ever needs load_profile cleared.
+    load_profile.clear()
 
 
 def period_data(period, period_type, force_agency=None):
@@ -1434,7 +1497,7 @@ if st.session_state.page == "Businesses":
     if password_reset_notice:
         st.toast(password_reset_notice, icon="\u2705")
     st.markdown('<div class="platform-admin-page"></div>', unsafe_allow_html=True)
-    database_posture = store.get_database_role_posture()
+    database_posture = load_database_role_posture()
     database_is_restricted = not any(
         database_posture[key]
         for key in ("superuser", "create_database", "create_role", "replication", "bypass_rls")
@@ -1454,13 +1517,13 @@ if st.session_state.page == "Businesses":
     </div>
     """, unsafe_allow_html=True)
 
-    businesses = store.get_businesses()
+    businesses = load_businesses_df()
     all_users = load_all_users_df()
+    agency_counts = load_agency_counts_by_business()
     total_agencies = len(businesses)
     active_agencies = int((businesses["status"] == "Active").sum()) if not businesses.empty else 0
     total_owners = int((all_users["role"] == "owner").sum()) if not all_users.empty else 0
-    total_sub_agencies = (sum(len(store.get_agencies(bid)) for bid in businesses["business_id"])
-                          if not businesses.empty else 0)
+    total_sub_agencies = sum(agency_counts.values())
 
     m1, m2, m3, m4 = st.columns(4)
     with m1:
@@ -1550,7 +1613,7 @@ if st.session_state.page == "Businesses":
             with st.container(border=True):
                 st.plotly_chart(health_fig, use_container_width=True, config={"displayModeBar": False})
 
-    recent_platform_activity = store.get_recent_platform_activity(8)
+    recent_platform_activity = load_recent_platform_activity(8)
     if not recent_platform_activity.empty:
         with st.expander("Recent platform activity", expanded=False):
             activity_view = recent_platform_activity.rename(columns={
@@ -1652,7 +1715,7 @@ if st.session_state.page == "Businesses":
                 owners_df = store.get_users(bid)
                 owners_only = owners_df[owners_df["role"] == "owner"] if not owners_df.empty else owners_df
                 owner_count = len(owners_only)
-                agency_count = len(store.get_agencies(bid))
+                agency_count = agency_counts.get(bid, 0)
                 # Use HTML instead of a Markdown heading so agency names never
                 # become clickable URL anchors that can leak into another login.
                 safe_directory_name = html.escape(str(b["business_name"]))
@@ -1838,7 +1901,7 @@ elif st.session_state.page == "MyProfile":
     new_display_name = st.text_input("Name", value=display_name, key="profile_name")
     if st.button("Save name", type="primary", disabled=not new_display_name.strip()):
         store.upsert_profile(username, display_name=new_display_name.strip())
-        refresh_caches()
+        refresh_profile_cache()
         st.toast("Name updated.", icon="\u2705")
         st.rerun()
 
@@ -1851,14 +1914,14 @@ elif st.session_state.page == "MyProfile":
             encoded = base64.b64encode(pic.read()).decode("utf-8")
             if st.button("Save picture", type="primary"):
                 store.upsert_profile(username, avatar_base64=encoded)
-                refresh_caches()
+                refresh_profile_cache()
                 st.toast("Profile picture updated.", icon="\u2705")
                 st.rerun()
 
     if avatar_b64:
         if st.button("Remove current picture"):
             store.upsert_profile(username, avatar_base64="")
-            refresh_caches()
+            refresh_profile_cache()
             st.toast("Profile picture removed.", icon="\u2705")
             st.rerun()
 
@@ -2018,7 +2081,7 @@ elif st.session_state.page == "Admin":
         partner_kpis = utils.compute_kpis(partner_df)
         commission_rates = {
             row["agency_name"]: (0.0 if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
-            for _, row in store.get_agency_details(business_id).iterrows()
+            for _, row in load_agency_details(business_id).iterrows()
         }
         partner_commission_due = 0.0
         for partner_name, partner_rows in partner_df.groupby("sub_agency"):
@@ -2231,7 +2294,7 @@ elif st.session_state.page == "Admin":
     with outlook_right:
         if can_view_full_tenant:
             comparison_rows = []
-            agency_details = store.get_agency_details(business_id)
+            agency_details = load_agency_details(business_id)
             rates = {row["agency_name"]: (None if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
                      for _, row in agency_details.iterrows()}
             for sub_name in load_agencies(business_id):
@@ -2572,7 +2635,7 @@ elif st.session_state.page == "AuditLog":
         "surfaced here as its own page for Auditor, which doesn't have access "
         "to Data Management's write actions."
     )
-    audit_df = store.get_security_audit(business_id, limit=200)
+    audit_df = load_security_audit(business_id, limit=200)
     if audit_df.empty:
         st.info("No security activity has been recorded yet.")
     else:
@@ -2923,7 +2986,7 @@ elif st.session_state.page == "Payouts":
     st.markdown('<div class="payout-section-head"><h2>Reward Activity History</h2>'
                 '<p>Rate changes and payment confirmations recorded for this agency.</p></div>',
                 unsafe_allow_html=True)
-    payout_audit = store.get_security_audit(business_id, limit=500)
+    payout_audit = load_security_audit(business_id, limit=500)
     if not payout_audit.empty:
         payout_audit = payout_audit[payout_audit["event_type"].isin(["payout_rule_saved", "payout_marked_paid"])]
     if payout_audit.empty:
@@ -3120,7 +3183,7 @@ elif st.session_state.page == "SubAgencies":
     df_prev = period_data(prev_period, "monthly") if prev_period else pd.DataFrame()
 
     agencies = load_agencies(business_id)
-    agency_details = store.get_agency_details(business_id)
+    agency_details = load_agency_details(business_id)
     commission_by_agency = {
         row["agency_name"]: (None if pd.isna(row["commission_pct"]) else float(row["commission_pct"]))
         for _, row in agency_details.iterrows()
@@ -3499,7 +3562,7 @@ elif st.session_state.page == "CreateAgency":
         st.rerun()
 
     st.markdown("##### Existing Sub-Agencies")
-    existing_agencies = store.get_agency_details(business_id)
+    existing_agencies = load_agency_details(business_id)
     if existing_agencies.empty:
         st.caption("No Sub-Agencies created yet.")
     else:
@@ -3792,7 +3855,7 @@ elif st.session_state.page == "DataManagement":
     st.markdown("---")
     st.markdown("##### Security Activity")
     st.caption("Recent sign-ins and security-sensitive changes in this agency workspace.")
-    audit_df = store.get_security_audit(business_id, limit=200)
+    audit_df = load_security_audit(business_id, limit=200)
     if audit_df.empty:
         st.info("No security activity has been recorded yet.")
     else:
