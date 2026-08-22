@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
-from poster.config import FONT_DIR, FONT_VARIABLE_FILE, METALLIC_STYLE_KEYS, POSTER_SIZES
+from poster.config import DEMO_WATERMARK_TEXT, FONT_DIR, FONT_VARIABLE_FILE, METALLIC_STYLE_KEYS, POSTER_SIZES
 
 _FONT_PATH = Path(__file__).resolve().parent.parent / FONT_DIR / FONT_VARIABLE_FILE
 
@@ -239,9 +239,22 @@ def _region_luminance_variance(img, xy, size):
     return ImageStat.Stat(region).stddev[0]
 
 
+def _draw_demo_watermark(img: Image.Image, draw: ImageDraw.ImageDraw) -> None:
+    """A small, unmistakable badge marking Demo Mode output as placeholder
+    art — never to be confused with a real generated poster. Drawn last, in
+    a thin strip along the very top edge, outside every layout's text zones.
+    """
+    canvas_w, canvas_h = img.size
+    strip_h = max(22, round(canvas_h * 0.028))
+    draw.rectangle((0, 0, canvas_w, strip_h), fill=(0, 0, 0, 150))
+    font = _font(600, max(12, round(strip_h * 0.55)))
+    draw.text((canvas_w / 2, strip_h / 2), DEMO_WATERMARK_TEXT, font=font,
+              fill=(255, 255, 255, 235), anchor="mm")
+
+
 def render_typography(image_bytes: bytes, *, layout_key: str, title: str = "", names: list | None = None,
                        tagline: str = "", date_time_text: str = "", cta: str = "",
-                       metallic: bool = False) -> bytes:
+                       metallic: bool = False, demo_watermark: bool = False) -> bytes:
     """Composites all deterministic text onto the generated artwork. Returns
     final PNG bytes. `names` is one string for single_hero, or exactly two
     strings ([name_a, name_b]) for battle_vs/finals_dual layouts.
@@ -268,6 +281,9 @@ def render_typography(image_bytes: bytes, *, layout_key: str, title: str = "", n
 
     if cta and "cta" in zones:
         _draw_block(img, draw, cta, zones["cta"], weight=600, min_size=14, max_lines=1)
+
+    if demo_watermark:
+        _draw_demo_watermark(img, draw)
 
     out = io.BytesIO()
     img.convert("RGB").save(out, format="PNG")

@@ -242,6 +242,17 @@ def render(*, username: str, user_role: str, business_id: str, business_name: st
         for err in validation_errors:
             st.warning(err)
 
+    provider_configured = _is_provider_configured()
+    demo_mode = st.checkbox(
+        "Preview UI with placeholder art (free — skips AI, no cost)",
+        value=not provider_configured, key="poster_demo_mode",
+        help="Runs the real typography, layout, and logo compositing on a "
+             "placeholder background instead of calling OpenAI — lets you "
+             "see and download a realistic-looking preview for free.",
+    )
+    if not provider_configured and not demo_mode:
+        st.caption("No OpenAI key is configured here, so a real generation will show a configuration error.")
+
     generate_clicked = st.button("Generate Poster", type="primary", disabled=bool(validation_errors))
 
     if generate_clicked:
@@ -250,12 +261,16 @@ def render(*, username: str, user_role: str, business_id: str, business_name: st
             tagline, subtitle, competition_name, battle_title, theme,
             style_key, creative_freedom, custom_instruction, cta,
             reference_file, logo_file, output_size_key, business_id,
+            demo_mode=demo_mode,
         )
 
     result = st.session_state.get("poster_result")
     if result is not None:
         st.markdown("---")
         st.markdown("#### Preview")
+        is_demo_result = result.metadata.provider == "demo"
+        if is_demo_result:
+            st.info("This is a Demo Mode preview — placeholder background, real layout/typography/logo. No AI was called and nothing was charged.")
         st.image(result.image_bytes, width='stretch')
 
         regen_col, variation_col, download_col = st.columns(3)
@@ -266,7 +281,7 @@ def render(*, username: str, user_role: str, business_id: str, business_name: st
                     tagline, subtitle, competition_name, battle_title, theme,
                     style_key, creative_freedom, custom_instruction, cta,
                     reference_file, logo_file, output_size_key, business_id,
-                    variation=False,
+                    variation=False, demo_mode=demo_mode,
                 )
         with variation_col:
             if st.button("Create Variation"):
@@ -275,12 +290,13 @@ def render(*, username: str, user_role: str, business_id: str, business_name: st
                     tagline, subtitle, competition_name, battle_title, theme,
                     style_key, creative_freedom, custom_instruction, cta,
                     reference_file, logo_file, output_size_key, business_id,
-                    variation=True,
+                    variation=True, demo_mode=demo_mode,
                 )
         with download_col:
-            filename = _build_filename(category, [n for n, _ in participants], event_date)
+            filename = _build_filename(category, [n for n, _ in participants], event_date, demo=is_demo_result)
             st.download_button(
-                "Download HQ Poster", data=result.image_bytes, file_name=filename,
+                "Download Demo Preview" if is_demo_result else "Download HQ Poster",
+                data=result.image_bytes, file_name=filename,
                 mime="image/png", type="primary",
             )
 
@@ -293,13 +309,22 @@ def render(*, username: str, user_role: str, business_id: str, business_name: st
                 )
 
 
-def _build_filename(category, names, event_date) -> str:
+def _build_filename(category, names, event_date, demo=False) -> str:
     safe_names = [sanitize_filename_component(n) for n in names] or ["poster"]
     date_part = sanitize_filename_component(event_date, max_len=16, fallback="")
     parts = [sanitize_filename_component(category.key)] + safe_names
     if date_part:
         parts.append(date_part)
+    if demo:
+        parts.append("demo")
     return "_".join(p for p in parts if p) + ".png"
+
+
+def _is_provider_configured() -> bool:
+    try:
+        return bool(st.secrets.get("openai", {}).get("api_key"))
+    except Exception:
+        return False
 
 
 def _run_generation(
@@ -307,7 +332,7 @@ def _run_generation(
     tagline, subtitle, competition_name, battle_title, theme,
     style_key, creative_freedom, custom_instruction, cta,
     reference_file, logo_file, output_size_key, business_id,
-    variation=False,
+    variation=False, demo_mode=False,
 ):
     try:
         with st.spinner("Validating your photos…"):
@@ -347,14 +372,16 @@ def _run_generation(
             st.session_state["poster_variation_counter"] += 1
             seed = f"variation-{st.session_state['poster_variation_counter']}"
 
-        with st.status("Generating your poster…", expanded=False) as status:
-            status.write("Building the design brief…")
-            result = generate_poster(request, business_id=business_id, regeneration_seed=seed)
-            status.update(label="Poster ready.", state="complete")
+        status_label = "Building a placeholder preview…" if demo_mode else "Generating your poster…"
+        with st.status(status_label, expanded=False) as status:
+            if not demo_mode:
+                status.write("Building the design brief…")
+            result = generate_poster(request, business_id=business_id, regeneration_seed=seed, demo_mode=demo_mode)
+            status.update(label="Preview ready." if demo_mode else "Poster ready.", state="complete")
 
         st.session_state["poster_result"] = result
         st.session_state["poster_last_error"] = None
-        st.toast("Poster generated.", icon="🎨")
+        st.toast("Demo preview ready." if demo_mode else "Poster generated.", icon="🎨")
         st.rerun()
 
     except PosterValidationError as e:

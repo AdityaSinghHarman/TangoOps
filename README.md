@@ -141,6 +141,16 @@ if/elif.
 
 **Supported photo formats:** JPG, JPEG, PNG, WEBP, up to 8 MB each.
 
+**Demo Mode — try the full UI for free, no OpenAI key or cost required:**
+tick "Preview UI with placeholder art" (auto-checked when no `[openai]`
+key is configured) before clicking Generate. It skips the paid AI call
+entirely and runs a Pillow-generated gradient background through the same
+real crop/typography/logo pipeline, clearly watermarked "DEMO PREVIEW" so
+it's never mistaken for real output. Every step of the wizard — category,
+participants, event info, style, branding, the generation-preview summary
+— is walkable with zero API key at all; Demo Mode additionally lets you
+see and download a realistic-looking finished poster.
+
 **Generation flow:** validate uploads → build a structured prompt
 (`poster/prompt_builder.py`) → OpenAI image generation/edit
 (`poster/image_generation_service.py`) → crop to the exact output size,

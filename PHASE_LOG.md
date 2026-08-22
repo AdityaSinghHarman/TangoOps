@@ -2145,3 +2145,40 @@ reset password) continues to work normally. Result: **tested as
 expected.** Pushed to `main` at commit `6312464` (fast-forward from
 `4f4cb36`), tested on prod 2026-08-22: **tested as expected.** **Live and
 verified on both dev and prod.**
+
+## 2026-08-22 — AI Poster Studio: cost-control options identified (not yet implemented)
+
+**Context:** while testing AI Poster Studio (`poster/` package, pushed to
+`dev` at commit `9d36e91` — see the blueprint/memory for the feature
+itself, not part of the 8-phase SaaS plan) the user asked what it takes to
+keep generation free of cost.
+
+**Finding:** there is no free tier for OpenAI's image API (`gpt-image-1`)
+— every generation costs money per image, regardless of anything in this
+codebase. "Free" isn't achievable for real generations; the available
+levers are bounding and minimizing spend, not eliminating it. Two concrete
+options were identified and handed to the user, **neither implemented
+yet**:
+
+1. **Lower the default generation quality.**
+   `poster/image_generation_service.py` currently hardcodes
+   `quality="high"` on every OpenAI `images.edit()` call — the most
+   expensive tier. Could default to `"medium"` or `"low"` (config-driven,
+   `poster/config.py`) so routine/test generations cost less, without
+   removing the option to go high-quality later.
+2. **Wire a real per-tenant generation cap.**
+   `poster/config.py` already stubs `can_generate_poster(business_id)`
+   and `get_poster_generation_allowance(business_id)` — both currently
+   always return "unlimited," specifically so a real cap could be wired in
+   later without touching `poster_service.py` or `ui.py` call sites. Not
+   built yet: no DB-backed counter exists, so a real cap would need a
+   small table/column (e.g. `poster_generations_used` per business per
+   day/month) plus enforcement in those two functions.
+
+Independent of anything in the app: the user should set a **hard spending
+limit in the OpenAI account's Billing settings** — the actual safety net,
+since it caps spend regardless of any bug or gap in this code.
+
+**Status:** Advisory only — no code changed. Revisit when the user decides
+which (if either) of the two options to implement.
+verified on both dev and prod.**

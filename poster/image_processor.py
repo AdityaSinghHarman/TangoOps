@@ -6,9 +6,53 @@ one place that would change.
 """
 import io
 
-from PIL import Image, ImageStat
+from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-from poster.config import POSTER_SIZES
+from poster.config import DEMO_STYLE_GRADIENTS, POSTER_SIZES
+
+
+def _hex_to_rgb(value: str) -> tuple:
+    value = value.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def generate_placeholder_background(width: int, height: int, style_key: str = "auto") -> bytes:
+    """A Pillow-only diagonal gradient with a soft vignette, standing in for
+    the AI artwork in Demo Mode. No external calls, no cost — lets the rest
+    of the pipeline (crop, typography, logo) be exercised for free.
+    """
+    c1, c2 = DEMO_STYLE_GRADIENTS.get(style_key, DEMO_STYLE_GRADIENTS["auto"])
+    r1, g1, b1 = _hex_to_rgb(c1)
+    r2, g2, b2 = _hex_to_rgb(c2)
+
+    diag = max(1, width + height)
+    row = []
+    for i in range(diag):
+        t = i / diag
+        row.append((round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t), round(b1 + (b2 - b1) * t)))
+    gradient_strip = Image.new("RGB", (diag, 1))
+    gradient_strip.putdata(row)
+    gradient_strip = gradient_strip.resize((diag, diag))
+    img = gradient_strip.rotate(45, expand=True)
+    left = (img.width - width) // 2
+    top = (img.height - height) // 2
+    img = img.crop((left, top, left + width, top + height))
+
+    # Soft vignette so it reads as a poster background, not a flat swatch.
+    # Darkens toward the palette's own darker endpoint rather than pure
+    # black, so light styles (e.g. Minimal Premium) don't get harsh black
+    # corners.
+    vignette = Image.new("L", (width, height), 255)
+    vdraw = ImageDraw.Draw(vignette)
+    vdraw.ellipse((-width * 0.2, -height * 0.2, width * 1.2, height * 1.2), fill=140)
+    vignette = vignette.filter(ImageFilter.GaussianBlur(radius=min(width, height) * 0.08))
+    darker = tuple(round(c * 0.55) for c in (min(r1, r2), min(g1, g2), min(b1, b2)))
+    dark_layer = Image.new("RGB", (width, height), darker)
+    img = Image.composite(img, dark_layer, vignette)
+
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
 
 
 def crop_to_size(image_bytes: bytes, size_key: str) -> bytes:
