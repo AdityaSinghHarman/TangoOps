@@ -751,6 +751,17 @@ def load_pdf_export_enabled(biz_id):
     return value in ("csv_pdf", "csv_pdf_scheduled")
 
 
+def poster_studio_enabled() -> bool:
+    """App-level feature flag (Section 54), not tied to a tenant's plan —
+    AI Poster Studio is a new, isolated feature rather than a billed
+    entitlement yet. Defaults on; set [features] ai_poster_studio = false
+    in secrets to disable without a deploy."""
+    try:
+        return bool(st.secrets.get("features", {}).get("ai_poster_studio", True))
+    except Exception:
+        return True
+
+
 def build_credentials():
     boot = st.secrets["bootstrap_admin"]
     boot_hash = stauth.Hasher().hash(boot["password"])
@@ -1055,7 +1066,7 @@ allowed_pages_by_role = {
     "owner": {
         "Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "Assign",
         "SubAgencies", "CreateAgency", "UploadMonthly", "UploadDaily",
-        "UserAccess", "DataManagement", "MyProfile", "Payouts",
+        "UserAccess", "DataManagement", "MyProfile", "Payouts", "PosterStudio",
     },
     # Everything Owner has except SubAgencies (has a live commission-rate edit
     # control Manager's permission set excludes — kept Owner-only rather than
@@ -1063,7 +1074,7 @@ allowed_pages_by_role = {
     # are in agency_manager's permission set (Section 03/store.py seed data).
     "agency_manager": {
         "Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "Assign",
-        "UploadMonthly", "UploadDaily", "UserAccess", "MyProfile",
+        "UploadMonthly", "UploadDaily", "UserAccess", "MyProfile", "PosterStudio",
     },
     # Read-only, full-tenant view (Section 03): no Assign/Upload/UserAccess -
     # nothing Auditor can act on, only look at. AuditLog is Auditor's one page
@@ -1185,6 +1196,12 @@ with st.sidebar:
             nav_button("Broadcasters", "Broadcasters", ":material/groups:")
             nav_button("Assign Broadcasters", "Assign", ":material/person_add:")
             nav_button("Create Sub-Agency", "CreateAgency", ":material/domain_add:")
+
+        if poster_studio_enabled():
+            with st.container(border=True):
+                st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="sidebar-group-head"><span>Creative</span></div>', unsafe_allow_html=True)
+                nav_button("AI Poster Studio", "PosterStudio", ":material/palette:")
 
         current_month_key = dt.date.today().strftime("%Y-%m")
         monthly_uploads = store.list_periods("monthly", business_id)
@@ -1856,6 +1873,25 @@ elif st.session_state.page == "MyProfile":
             refresh_caches()
             st.toast("Profile picture removed.", icon="\u2705")
             st.rerun()
+
+# ============================================================ POSTER STUDIO
+elif st.session_state.page == "PosterStudio":
+    if user_role not in ("owner", "agency_manager"):
+        st.error("Owner or Agency Manager access only.")
+    elif not poster_studio_enabled():
+        st.info("AI Poster Studio is currently disabled for this environment.")
+    else:
+        try:
+            from poster.ui import render as render_poster_studio
+            render_poster_studio(
+                username=username, user_role=user_role,
+                business_id=business_id, business_name=business_name,
+            )
+        except Exception as e:
+            # Isolated by design (Section 70): a failure here must never take
+            # down the rest of the dashboard.
+            print(f"poster_studio: page failed to load — {type(e).__name__}: {e}")
+            st.error("AI Poster Studio is temporarily unavailable. Please try again shortly.")
 
 # ==================================================================== ADMIN
 elif st.session_state.page == "Admin":

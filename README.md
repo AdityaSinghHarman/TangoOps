@@ -115,6 +115,65 @@ as **Agency Direct**. No special upload mode is required. The Agency overview
 compares direct hires with Sub-Agency hires and shows the commission-adjusted
 earnings mix.
 
+## AI Poster Studio
+An Owner/Agency Manager–only page (sidebar → **Creative → AI Poster Studio**)
+that turns participant photo(s) plus event details into a premium,
+high-resolution promotional poster: birthday, official battle, finals,
+winner/achievement, live event, and more. AI generates the artwork; exact
+title/name/date/time text is composited afterward with Pillow, so it can
+never contain an AI spelling error.
+
+**Setup:** add to Streamlit Cloud secrets (or local `.streamlit/secrets.toml`):
+```toml
+[openai]
+api_key = "sk-..."
+# model = "gpt-image-1"   # optional
+```
+Without an `[openai]` section, the page shows a friendly "not configured"
+message — nothing else in the dashboard is affected. To turn the whole
+feature off without a deploy, add `[features] ai_poster_studio = false`.
+
+**Supported poster categories:** Birthday Celebration, Premium/Glam
+Birthday, Official Battle, Battle Promotion, Finals/Competition, Special
+Celebration, Special Live Event, Winner/Achievement, Custom — defined in
+`poster/categories.py`; add a new one there, nothing else needs an
+if/elif.
+
+**Supported photo formats:** JPG, JPEG, PNG, WEBP, up to 8 MB each.
+
+**Generation flow:** validate uploads → build a structured prompt
+(`poster/prompt_builder.py`) → OpenAI image generation/edit
+(`poster/image_generation_service.py`) → crop to the exact output size,
+never stretched (`poster/image_processor.py`) → deterministic Python
+typography + logo (`poster/typography.py`) → quality check → preview →
+download. Only the **Generate Poster** / **Regenerate** / **Create
+Variation** buttons ever call the paid API — normal Streamlit reruns don't.
+
+**Local testing (no API key or cost required):**
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -q
+```
+The test suite mocks the image-generation provider entirely — it never
+calls OpenAI.
+
+**Deployment:** fonts are bundled at `assets/fonts/Inter-Variable.ttf` (SIL
+OFL) so typography doesn't depend on the host having fonts installed.
+Uploaded photos are processed in memory and never written to disk or
+stored permanently — Poster History is intentionally not built yet (see
+Future Improvements).
+
+**Troubleshooting:**
+- *"AI Poster Studio isn't configured yet"* — the `[openai]` secret is
+  missing; add it and reboot the app.
+- *"The AI image service is temporarily unavailable"* — a transient
+  OpenAI error after retries; wait and try again.
+- *"The AI image service rejected this request"* — usually an unsupported
+  photo or a prompt OpenAI's safety system declined; try different photos
+  or wording.
+- Nothing else in the dashboard should ever break because of this page —
+  if it does, check the server logs for a line starting `poster_studio:`.
+
 ## Known gap — true day-by-day charting
 The approved design's comparison chart plots a full month day-by-day.
 Your monthly CSV only has period *totals*, not a row per day, so the app
