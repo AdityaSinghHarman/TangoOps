@@ -2034,6 +2034,10 @@ python3 scripts/verify_tenant_isolation.py
 ```
 Then repeat the same manual page/role click-through as Step 1's test.
 
-**Status:** Implemented, compiled, self-reviewed. Requires the grant
-script to be re-run against dev before it takes effect (policy-only
-change, no new table) - not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `af10e47`. Grant script re-run against dev's database by the user
+2026-08-22. Tested on dev: `scripts/verify_tenant_isolation.py` printed
+**PASS** for all 11 tables (real cross-tenant read protection confirmed,
+not just asserted), then the same page/role click-through as Step 1
+confirmed no regression. Result: **tested as expected.** Not yet pushed
+to prod.
