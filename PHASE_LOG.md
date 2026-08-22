@@ -1856,6 +1856,22 @@ WHERE business_id = '<business_id>';
 UPDATE businesses SET is_demo = true WHERE business_id = '<business_id>';
 ```
 
-**Status:** Implemented, compiled, self-reviewed. Requires the two GitHub
-repo secrets to be added before the workflow can run - not yet pushed to
-dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `801ce54`. **First manual workflow run failed**: the `dev` matrix
+leg errored with `psycopg2.OperationalError: ... password authentication
+failed for user "tangoops_app"` - the `DEV_TANGOOPS_DATABASE_URL` secret
+had a stale/incorrect credential (a recurring category of issue in this
+project - see the pooler username-format and password-mixup incidents
+earlier in this log). Fixed by the user re-copying the connection string
+directly from dev's Streamlit Cloud secrets (known-working, since the
+deployed app itself authenticates with it) rather than retyping it.
+Also noted: GitHub Actions' default matrix `fail-fast` behavior cancelled
+the `prod` leg the moment `dev` failed - expected, not a bug, but worth
+knowing since a future prod-only failure investigation shouldn't assume
+dev's run status. After fixing the secret, tested on dev by the user
+2026-08-22: manually dispatched the workflow, confirmed
+`subscriptions.status` moved to `grace`, confirmed the `subscription_grace`
+`security_audit` event was logged, and confirmed the warning banner
+appeared when logged in as that tenant. Test data reverted afterward
+(`status` back to `active` with a fresh period, `is_demo` back to `true`).
+Result: **tested as expected.** Not yet pushed to prod.
