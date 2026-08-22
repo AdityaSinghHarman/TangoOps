@@ -20,9 +20,11 @@ TABLES = (
     "businesses", "users", "memberships", "subscriptions", "roles", "permissions",
     "role_permissions", "plans", "plan_features", "entitlements", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
-    "broadcaster_payout_rules", "broadcaster_payout_status",
+    "broadcaster_payout_rules", "broadcaster_payout_status", "billing_events",
 )
-SEQUENCES = ("raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq")
+SEQUENCES = (
+    "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq", "billing_events_id_seq",
+)
 TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
 SEQUENCE_PRIVILEGES = ("USAGE", "SELECT")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

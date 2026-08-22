@@ -498,6 +498,33 @@ CREATE TABLE IF NOT EXISTS broadcaster_payout_status (
 CREATE INDEX IF NOT EXISTS idx_payout_status_period
     ON broadcaster_payout_status (business_id, period, status);
 
+-- Phase 6 (Billing), first slice: a manual, offline payment ledger - no
+-- gateway integration. GST-compliant invoice generation was explicitly
+-- deferred (real tax-compliance risk, not something to guess at) - this
+-- table only tracks that a payment was recorded, by whom, when, and how,
+-- so a Super Admin can advance a tenant's subscription without a formal
+-- invoice existing yet. Append-only in intent (see Section 10 of the
+-- blueprint), though - like the pre-existing security_audit table - this
+-- isn't yet enforced with restricted UPDATE/DELETE grants; a known,
+-- shared gap, not something this slice introduces.
+CREATE TABLE IF NOT EXISTS billing_events (
+    id SERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL REFERENCES businesses(business_id),
+    event_type TEXT NOT NULL,
+    method TEXT NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'INR',
+    reference_note TEXT,
+    recorded_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT billing_events_event_type_valid
+        CHECK (event_type IN ('payment_recorded', 'payment_failed')),
+    CONSTRAINT billing_events_method_valid
+        CHECK (method IN ('cash', 'bank_transfer', 'upi', 'gateway'))
+);
+CREATE INDEX IF NOT EXISTS idx_billing_events_business
+    ON billing_events (business_id, created_at DESC);
+
 -- The browser-facing Supabase API must never expose these tables. StreamOperiq
 -- accesses Postgres only from the server, so anon/authenticated need no grants.
 DO $$
@@ -507,7 +534,7 @@ BEGIN
         'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
         'role_permissions', 'plans', 'plan_features', 'entitlements', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
-        'broadcaster_payout_rules', 'broadcaster_payout_status'
+        'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events'
     ] LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
@@ -524,11 +551,11 @@ RUNTIME_TABLES = (
     "businesses", "users", "memberships", "subscriptions", "roles", "permissions",
     "role_permissions", "plans", "plan_features", "entitlements", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
-    "broadcaster_payout_rules", "broadcaster_payout_status",
+    "broadcaster_payout_rules", "broadcaster_payout_status", "billing_events",
 )
 
 RUNTIME_SEQUENCES = (
-    "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq",
+    "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq", "billing_events_id_seq",
 )
 
 RUNTIME_TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
@@ -952,6 +979,76 @@ def clear_entitlement_override(business_id: str, feature_key: str):
         "DELETE FROM entitlements WHERE business_id=%s AND feature_key=%s",
         (business_id, feature_key),
     )
+
+
+# ---------------- billing (Phase 6, first slice — manual payments only, no gateway, no invoices) ----------------
+
+def get_subscription(business_id: str):
+    """The tenant's full subscriptions row, or None if it has never had one
+    (every business predating Phase 4, and any newer one the Super Admin
+    hasn't assigned a plan to yet)."""
+    df = _query(
+        "SELECT business_id, plan_code, billing_cycle, status, auto_renew, "
+        "current_period_start, current_period_end, created_by, created_at, updated_at "
+        "FROM subscriptions WHERE business_id=%s",
+        (business_id,),
+    )
+    return None if df.empty else df.iloc[0]
+
+
+def get_billing_events(business_id: str) -> pd.DataFrame:
+    return _query(
+        "SELECT event_type, method, amount, currency, reference_note, recorded_by, created_at "
+        "FROM billing_events WHERE business_id=%s ORDER BY created_at DESC",
+        (business_id,),
+    )
+
+
+def record_payment(business_id: str, plan_code: str, billing_cycle: str, amount,
+                    method: str, reference_note: str, recorded_by: str):
+    """Atomically records a manually-confirmed payment and advances the
+    tenant's subscription. One transaction because the payment ledger and
+    the subscription's active/period-dates must never disagree about
+    whether a payment happened.
+
+    No payment gateway exists (Section 11), so auto_renew is always left
+    false here regardless of plan or cycle - "renewal" is always a fresh
+    Record Payment action, not an automatic charge, until a gateway phase
+    changes that. Period length is a flat 30/365-day approximation, not
+    calendar-month arithmetic - a deliberate simplification for this slice.
+    """
+    days = 365 if billing_cycle == "annual" else 30
+    period_start = dt.date.today()
+    period_end = period_start + dt.timedelta(days=days)
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO subscriptions "
+                "(business_id, plan_code, billing_cycle, status, auto_renew, "
+                "current_period_start, current_period_end, created_by) "
+                "VALUES (%s,%s,%s,'active',false,%s,%s,%s) "
+                "ON CONFLICT (business_id) DO UPDATE SET "
+                "plan_code=EXCLUDED.plan_code, billing_cycle=EXCLUDED.billing_cycle, "
+                "status='active', auto_renew=false, "
+                "current_period_start=EXCLUDED.current_period_start, "
+                "current_period_end=EXCLUDED.current_period_end, updated_at=now()",
+                (business_id, plan_code, billing_cycle, period_start, period_end,
+                 _normalize_username(recorded_by)),
+            )
+            cur.execute(
+                "INSERT INTO billing_events "
+                "(business_id, event_type, method, amount, currency, reference_note, recorded_by) "
+                "VALUES (%s,'payment_recorded',%s,%s,'INR',%s,%s)",
+                (business_id, method, amount, reference_note, _normalize_username(recorded_by)),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        p.putconn(conn)
 
 
 def log_security_event(event_type: str, actor_username: str = "", actor_role: str = "",

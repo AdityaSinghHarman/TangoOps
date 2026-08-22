@@ -11,7 +11,8 @@
 -- 21 Aug 2026: added 'memberships' (was missed when that table was first
 -- added) and 'subscriptions'. 22 Aug 2026: added 'roles', 'permissions',
 -- 'role_permissions' (Phase 3, schema/seed only), then 'plans',
--- 'plan_features', 'entitlements' (Phase 4a, schema/seed only).
+-- 'plan_features', 'entitlements' (Phase 4a, schema/seed only), then
+-- 'billing_events' (Phase 6, first slice).
 
 DO $$
 BEGIN
@@ -42,7 +43,7 @@ BEGIN
         'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
         'role_permissions', 'plans', 'plan_features', 'entitlements', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
-        'broadcaster_payout_rules', 'broadcaster_payout_status'
+        'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events'
     ] LOOP
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO tangoops_app',
@@ -63,6 +64,7 @@ END $$;
 GRANT USAGE, SELECT ON SEQUENCE public.raw_uploads_id_seq TO tangoops_app;
 GRANT USAGE, SELECT ON SEQUENCE public.assignment_log_id_seq TO tangoops_app;
 GRANT USAGE, SELECT ON SEQUENCE public.security_audit_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.billing_events_id_seq TO tangoops_app;
 
 SELECT
     rolname, rolsuper, rolcreatedb, rolcreaterole,

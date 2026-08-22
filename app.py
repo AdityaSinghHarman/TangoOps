@@ -1283,6 +1283,21 @@ def load_business_memberships(biz_id):
     return store.get_business_memberships(biz_id)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load_plans():
+    return store.get_plans()
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_subscription(biz_id):
+    return store.get_subscription(biz_id)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_billing_events(biz_id):
+    return store.get_billing_events(biz_id)
+
+
 INTERNAL_USER_ROLES = ("owner", "agency_manager", "auditor", "trial_viewer")
 
 
@@ -1338,6 +1353,8 @@ def refresh_caches():
     load_payout_rules.clear()
     load_effective_payout_rules.clear()
     load_payout_statuses.clear()
+    load_subscription.clear()
+    load_billing_events.clear()
 
 
 def period_data(period, period_type, force_agency=None):
@@ -1669,6 +1686,86 @@ if st.session_state.page == "Businesses":
                                                 st.error(message)
                                         else:
                                             st.error("Enter a new password.")
+
+                    st.markdown("###### Plan & Billing")
+                    plans_df = load_plans()
+                    subscription = load_subscription(bid)
+                    current_plan_code = subscription["plan_code"] if subscription is not None else "essential"
+                    current_plan_name = (
+                        plans_df.loc[plans_df["code"] == current_plan_code, "name"].iloc[0]
+                        if not plans_df.empty and current_plan_code in plans_df["code"].values
+                        else current_plan_code
+                    )
+                    if subscription is None:
+                        st.caption(
+                            f"No payment recorded yet - defaulting to **{current_plan_name}** "
+                            "(the most restrictive plan) until one is."
+                        )
+                    else:
+                        period_text = (
+                            f"{subscription['current_period_start']} to {subscription['current_period_end']}"
+                            if subscription["current_period_start"] is not None else "not set"
+                        )
+                        st.caption(
+                            f"Plan: **{current_plan_name}** &nbsp;·&nbsp; Status: **{subscription['status']}** "
+                            f"&nbsp;·&nbsp; Billing cycle: **{subscription['billing_cycle']}** "
+                            f"&nbsp;·&nbsp; Current period: {period_text}"
+                        )
+
+                    with st.popover("Record Payment", use_container_width=True):
+                        plan_options = plans_df["code"].tolist()
+                        pay_plan = st.selectbox(
+                            "Plan", plan_options, key=f"pay_plan_{bid}",
+                            index=plan_options.index(current_plan_code) if current_plan_code in plan_options else 0,
+                            format_func=lambda code: plans_df.loc[plans_df["code"] == code, "name"].iloc[0],
+                        )
+                        plan_row = plans_df.loc[plans_df["code"] == pay_plan].iloc[0]
+                        cycle_options = ["annual"] if plan_row["billing_mode"] == "one_time_annual" else ["monthly", "annual"]
+                        pay_cycle = st.selectbox("Billing cycle", cycle_options, key=f"pay_cycle_{bid}")
+                        default_amount = float(
+                            plan_row["price_annual"] if pay_cycle == "annual" else (plan_row["price_monthly"] or 0)
+                        )
+                        pay_amount = st.number_input(
+                            "Amount received (INR)", min_value=0.0, value=default_amount, step=100.0,
+                            key=f"pay_amount_{bid}",
+                        )
+                        pay_method = st.selectbox(
+                            "Method", ["bank_transfer", "upi", "cash"], key=f"pay_method_{bid}",
+                            format_func=lambda m: {"bank_transfer": "Bank Transfer (NEFT/RTGS)",
+                                                    "upi": "UPI", "cash": "Cash"}[m],
+                        )
+                        pay_reference = st.text_input(
+                            "Reference (UTR / UPI transaction ID)", key=f"pay_reference_{bid}",
+                        )
+                        if st.button("Confirm Payment Recorded", key=f"pay_confirm_{bid}", type="primary"):
+                            store.record_payment(
+                                bid, pay_plan, pay_cycle, pay_amount, pay_method,
+                                pay_reference.strip(), username,
+                            )
+                            store.log_security_event(
+                                "payment_recorded", username, user_role, bid,
+                                "subscription", pay_plan,
+                                f"amount={pay_amount} method={pay_method} cycle={pay_cycle}",
+                            )
+                            refresh_caches()
+                            st.toast("Payment recorded and subscription updated.", icon="✅")
+                            st.rerun()
+
+                    billing_events = load_billing_events(bid)
+                    if not billing_events.empty:
+                        payment_method_labels = {
+                            "bank_transfer": "Bank Transfer", "upi": "UPI",
+                            "cash": "Cash", "gateway": "Gateway",
+                        }
+                        with st.expander(f"Payment history ({len(billing_events)})", expanded=False):
+                            for _, ev in billing_events.iterrows():
+                                method_label = payment_method_labels.get(ev["method"], ev["method"])
+                                st.markdown(
+                                    f"**₹{ev['amount']:,.2f}** via {method_label} "
+                                    f"&nbsp;·&nbsp; {ev['created_at']} &nbsp;·&nbsp; recorded by `{ev['recorded_by']}`"
+                                    + (f" &nbsp;·&nbsp; ref: {html.escape(str(ev['reference_note']))}"
+                                       if ev["reference_note"] else "")
+                                )
 
 # ================================================================ MY PROFILE
 elif st.session_state.page == "MyProfile":

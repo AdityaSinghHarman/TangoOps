@@ -1609,3 +1609,113 @@ unlimited behavior on Network. Result: **tested as expected.** Pushed to
 `main` at commit `a21d519` (fast-forward from `e6b578e`), tested on prod
 2026-08-22: **tested as expected.** **Live and verified on both dev and
 prod.**
+
+---
+
+## Phase 6, first slice: manual payment tracking + Super Admin plan assignment (no GST invoices)
+
+**Scoped down from the blueprint's full Phase 6 before starting.** The
+blueprint's Phase 6 bundles three things: (1) a payment ledger, (2) a
+Super Admin flow to assign a plan and record a payment, and (3)
+GST-compliant invoice generation (sequential invoice numbering, GSTIN,
+HSN/SAC code, CGST/SGST/IGST tax split by place of supply — a real legal
+tax document).
+
+**Decision (user, 2026-08-22): skip GST invoice generation entirely for
+now.** Build (1) and (2) - track what was paid, when, by whom, and
+advance the tenant's subscription - but no formal GST invoice PDF. The
+agency issues invoices manually outside the app until GST-compliance
+details are confirmed with an accountant/CA. This avoids presenting
+something as "GST-compliant" without the authority to actually guarantee
+that.
+
+**Also discovered, not previously known:** there was **no UI at all** to
+assign a tenant a plan - every `subscriptions` row created so far in this
+session's testing was raw SQL. This slice is therefore also the first
+real "Super Admin assigns a plan" flow (Section 04's "How a Super Admin
+assigns a plan" description), not just a payment-recording addition.
+
+**New table:** `billing_events` (`id SERIAL PK, business_id, event_type
+CHECK IN ('payment_recorded','payment_failed'), method CHECK IN
+('cash','bank_transfer','upi','gateway'), amount NUMERIC(12,2), currency
+DEFAULT 'INR', reference_note, recorded_by, created_at`). Added to
+`RUNTIME_TABLES`/`RUNTIME_SEQUENCES` in `store.py`, the RLS-enable loop,
+`database/restricted_role_setup.sql`'s grant loop + its own sequence
+grant, `scripts/verify_database_role.py`'s `TABLES`/`SEQUENCES`, and
+`scripts/smoke_test_runtime_database.py` - the same four places every
+prior table addition this session has touched.
+
+**Known, accepted gap, not introduced by this slice:** Section 10 of the
+blueprint says `billing_events` should be append-only at the database
+layer (no UPDATE/DELETE grants). It isn't - it got the same full
+SELECT/INSERT/UPDATE/DELETE grant as every other runtime table, same as
+the pre-existing `security_audit` table already has. Not fixed here to
+avoid scope creep; a real, shared gap worth a dedicated pass later.
+
+**What was done in `store.py`:**
+- `get_subscription(business_id)` - full `subscriptions` row, or `None`
+  if the tenant has never had one.
+- `get_billing_events(business_id)` - payment history, newest first.
+- `record_payment(business_id, plan_code, billing_cycle, amount, method,
+  reference_note, recorded_by)` - one atomic transaction (matching
+  `create_user()`'s pattern): upserts `subscriptions` (`status='active'`,
+  a fresh `current_period_start/end` window, `auto_renew` always `false`
+  since there's no gateway to auto-charge against - "renewal" is always a
+  fresh Record Payment action for now) and appends a `billing_events`
+  row. Period length is a flat 30-day (monthly) / 365-day (annual)
+  approximation, not calendar-month arithmetic - a deliberate
+  simplification, noted in the docstring so it isn't mistaken for exact
+  later.
+
+**What was done in `app.py`:** a "Plan & Billing" section added to the
+existing "Manage" panel on the Platform Admin's Businesses page (the only
+place a business's details are already editable) - not a new page:
+- Shows the tenant's current plan, status, billing cycle, and period
+  dates (or "no payment recorded yet, defaulting to Essential" if the
+  business has never had a `subscriptions` row).
+- A "Record Payment" popover: plan dropdown (from `plans`), billing-cycle
+  dropdown (forced to `annual`-only for Pioneer's `one_time_annual` mode,
+  monthly/annual for the four recurring plans), an amount field
+  pre-filled from the plan's list price for the chosen cycle but
+  editable, a payment-method dropdown (cash/bank transfer/UPI only -
+  `gateway` is reserved for a future real gateway integration, not
+  something a human manually selects), and a reference field (UTR/UPI
+  transaction ID). Confirming calls `record_payment()`, logs a
+  `payment_recorded` security-audit event, refreshes caches, and reruns.
+- A "Payment history" expander listing every `billing_events` row for
+  that tenant.
+- New cached loaders `load_plans()`, `load_subscription()`,
+  `load_billing_events()`, all added to `refresh_caches()`.
+
+**Expected result:**
+1. A business with no `subscriptions` row shows "no payment recorded
+   yet" and defaults to Essential (matching every plan-gated feature
+   built in Phase 4b/5, which already default to Essential's restrictions
+   for exactly this reason).
+2. Recording a payment through the UI updates the displayed plan/status/
+   period immediately, appears in Payment history, and - because it's
+   the same `subscriptions` row `has_feature()` already reads live -
+   immediately changes what that tenant can do everywhere else in the
+   app (AI features, PDF export, Statistics access, invite limits) with
+   no separate sync step.
+3. Pioneer can only be recorded as `annual`; the other four plans offer
+   both cycles.
+
+**How to verify:**
+```sql
+-- confirm billing_events exists and the restricted role can use it after migration + grant scripts run:
+SELECT to_regclass('public.billing_events');
+
+-- after recording a payment through the UI, confirm both rows:
+SELECT * FROM subscriptions WHERE business_id = '<business_id>';
+SELECT * FROM billing_events WHERE business_id = '<business_id>' ORDER BY created_at DESC LIMIT 1;
+```
+Then, as Platform Admin, open a test business's Manage panel, record a
+payment for a plan other than Essential, and confirm the plan/status/
+period update immediately and a plan-gated feature (e.g. the Insights tab
+from the `ai_features` slice) reflects the new plan without any other
+change.
+
+**Status:** Implemented, compiled, self-reviewed. Requires a migration +
+grant-script run on dev before it can be tested (new table). Not yet
+pushed to dev.

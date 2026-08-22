@@ -134,6 +134,13 @@ def main():
                 "VALUES (%s,'2099-01',%s,'Paid',%s,%s)",
                 (business_id, profile_url, now, username),
             )
+            cur.execute(
+                "INSERT INTO billing_events "
+                "(business_id, event_type, method, amount, currency, reference_note, recorded_by) "
+                "VALUES (%s,'payment_recorded','bank_transfer',999.00,'INR',%s,%s) RETURNING id",
+                (business_id, marker, username),
+            )
+            cur.fetchone()
 
             cur.execute(
                 "UPDATE businesses SET business_name=%s WHERE business_id=%s RETURNING business_name",
