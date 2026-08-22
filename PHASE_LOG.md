@@ -1752,3 +1752,110 @@ commit `85cf098`, then to `main` at commit `6084135` alongside the Phase
 6 slice above. No independent test needed - a one-line cache-clear fix,
 exercised implicitly by the Phase 6 slice testing on both dev and prod
 (same deploys). **Live on both dev and prod.**
+
+---
+
+## Phase 7, first slice: real external cron for grace/restricted transitions + in-app banner
+
+**Two infrastructure decisions confirmed with the user before starting**,
+since "scheduled jobs" and "payment-reminder cadence" aren't things that
+exist yet in this stack at all:
+1. **Scheduling: real external cron**, not a lazy on-page-load check.
+   Implemented as a GitHub Actions workflow on a daily schedule, since the
+   app is already hosted from this GitHub repo - no new service to sign
+   up for, unlike a gateway or email provider would be.
+2. **Reminders: in-app banner only for this slice**, no real email. No
+   email-sending capability exists anywhere in this codebase (checked -
+   zero SMTP/SendGrid/SES code). Real day 1/3/7 email nudges are deferred
+   to a later slice once an email service is chosen.
+
+**No schema change** - `subscriptions.status` already supports
+`grace`/`restricted` (added in Phase 2). Pure new script + workflow +
+`app.py` banner.
+
+**What was done:**
+- `scripts/run_lifecycle_checks.py` (new) - the actual scheduled job.
+  Moves `active` -> `grace` when `current_period_end` has passed, and
+  `grace` -> `restricted` after a further `GRACE_PERIOD_DAYS = 7` days
+  past that. Both transitions logged to `security_audit` (actor
+  `system`/`system`) for traceability. **Explicitly excludes
+  `businesses.is_demo = true` tenants** - re-confirming Phase 2's stated
+  acceptance criterion ("demo tenant never gets suspended for
+  non-payment"), which matters here because all 3 of prod's current test
+  tenants were flagged `is_demo = true` by the Phase 2 backfill, so none
+  of them will move on their own; testing requires clearing that flag on
+  one test business first (`store.set_business_demo_flag`). Idempotent by
+  construction - the `WHERE` clauses only match rows still in the stale
+  state, so re-running (or the daily schedule catching a tenant that
+  already paid via `record_payment()`, which resets status to `active`)
+  never regresses anything. Uses the restricted `tangoops_app` connection
+  via `TANGOOPS_DATABASE_URL`, same convention as every other ad-hoc
+  script in this directory - no admin connection needed, this only does
+  what the runtime role can already do.
+- `.github/workflows/lifecycle_checks.yml` (new) - runs the script daily
+  at 03:00 UTC against **both** dev and prod (a matrix job), plus
+  `workflow_dispatch` for a manual test run from the Actions tab. Reads
+  connection strings from two new GitHub repo secrets -
+  `DEV_TANGOOPS_DATABASE_URL` and `PROD_TANGOOPS_DATABASE_URL` - which
+  the user needs to add themselves (Settings > Secrets and variables >
+  Actions); I never see or set these, consistent with never handling
+  real credentials directly.
+- `app.py`: a banner shown on every page, to every logged-in user of a
+  tenant (not just Owner/Manager), reading `load_subscription()` live -
+  a warning when `status = grace`, an error when `status = restricted`.
+  **Deliberately worded to not claim any action is actually blocked** -
+  this slice is informational only; enforcing the "read-only, no
+  create/upload/export/invite" restriction described in Section 07 is a
+  separate, not-yet-built slice (same magnitude of work as Trial
+  Viewer's read-only restrictions across the app in Phase 3b).
+
+**Expected result:**
+1. A tenant with `status = active` and a `current_period_end` in the past
+   moves to `grace` on the next scheduled (or manually dispatched) run,
+   and every user of that tenant sees the warning banner on their next
+   page load - immediately, no deploy needed, since the banner reads the
+   status live.
+2. Left unresolved past the grace window, the same tenant moves to
+   `restricted` and the banner switches to the error variant. Nothing is
+   actually blocked yet - by design, for this slice.
+3. A demo-flagged tenant (`is_demo = true`) never moves, regardless of
+   how stale its `current_period_end` is.
+4. Recording a new payment (Phase 6's `record_payment()`) resets
+   `status` to `active` with a fresh period - the next scheduled run,
+   or an immediate page load, reflects that the tenant is current again.
+
+**How to verify (on dev first):**
+```sql
+-- pick a test business and clear its demo flag so the script will touch it:
+UPDATE businesses SET is_demo = false WHERE business_id = '<business_id>';
+
+-- give it a lapsed subscription to simulate a missed payment:
+INSERT INTO subscriptions (business_id, plan_code, billing_cycle, status, auto_renew,
+                            current_period_start, current_period_end)
+VALUES ('<business_id>', 'growth', 'monthly', 'active', false,
+        CURRENT_DATE - INTERVAL '40 days', CURRENT_DATE - INTERVAL '10 days')
+ON CONFLICT (business_id) DO UPDATE SET
+  status='active', current_period_start=EXCLUDED.current_period_start,
+  current_period_end=EXCLUDED.current_period_end;
+```
+Then either wait for the scheduled run or trigger it manually from the
+GitHub Actions tab (`workflow_dispatch`), and confirm:
+- `SELECT status FROM subscriptions WHERE business_id = '<business_id>'`
+  shows `grace` (period ended 10 days ago, within the 7-day-plus window
+  needed to reach `restricted` on this specific test data - adjust the
+  interval above to `-17 days` to land directly in `restricted` instead).
+- Logging in as that tenant shows the banner.
+- `SELECT * FROM security_audit WHERE business_id='<business_id>' AND
+  event_type LIKE 'subscription_%'` shows the transition was logged.
+
+**Revert when done:**
+```sql
+UPDATE subscriptions SET status='active',
+  current_period_start=CURRENT_DATE, current_period_end=CURRENT_DATE + INTERVAL '365 days'
+WHERE business_id = '<business_id>';
+UPDATE businesses SET is_demo = true WHERE business_id = '<business_id>';
+```
+
+**Status:** Implemented, compiled, self-reviewed. Requires the two GitHub
+repo secrets to be added before the workflow can run - not yet pushed to
+dev.

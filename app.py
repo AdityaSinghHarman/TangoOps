@@ -1384,6 +1384,30 @@ def previous_period_of(period, period_type):
     return remaining[0] if remaining else None
 
 
+# Phase 7, first slice: subscriptions.status is advanced by an external
+# scheduled job (scripts/run_lifecycle_checks.py), not by the app itself -
+# this banner just reads whatever that job last wrote and shows it, on
+# every page, to everyone logged into this tenant. Informational only for
+# now - no action is actually blocked yet when restricted (that's a
+# separate, not-yet-built slice), so the copy here deliberately doesn't
+# claim otherwise.
+if business_id:
+    _tenant_subscription = load_subscription(business_id)
+    if _tenant_subscription is not None:
+        if _tenant_subscription["status"] == "grace":
+            st.warning(
+                f"Payment overdue since {_tenant_subscription['current_period_end']}. "
+                "Please arrange payment soon to avoid a move to restricted access.",
+                icon="⚠️",
+            )
+        elif _tenant_subscription["status"] == "restricted":
+            st.error(
+                f"This account is marked restricted due to non-payment "
+                f"(since {_tenant_subscription['current_period_end']}). "
+                "Contact StreamOperiq to restore full access.",
+                icon="🔒",
+            )
+
 # ============================================================== BUSINESSES
 if st.session_state.page == "Businesses":
     if not is_platform_admin:

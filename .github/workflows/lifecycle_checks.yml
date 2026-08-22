@@ -1,0 +1,32 @@
+name: Subscription lifecycle checks
+
+# Phase 7, first slice: the real external cron behind subscriptions.status
+# moving active -> grace -> restricted (scripts/run_lifecycle_checks.py).
+# Runs independently of anyone using the app, against both databases.
+#
+# Requires two repo secrets, set manually in GitHub (Settings > Secrets
+# and variables > Actions) - never commit real connection strings here:
+#   DEV_TANGOOPS_DATABASE_URL   - the tangoops_app connection string for dev
+#   PROD_TANGOOPS_DATABASE_URL  - the tangoops_app connection string for prod
+
+on:
+  schedule:
+    - cron: "0 3 * * *"  # 03:00 UTC daily
+  workflow_dispatch: {}   # allows a manual run from the Actions tab, for testing
+
+jobs:
+  lifecycle-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install psycopg2-binary
+      - name: Run lifecycle check (${{ matrix.environment }})
+        env:
+          TANGOOPS_DATABASE_URL: ${{ matrix.environment == 'dev' && secrets.DEV_TANGOOPS_DATABASE_URL || secrets.PROD_TANGOOPS_DATABASE_URL }}
+        run: python scripts/run_lifecycle_checks.py
