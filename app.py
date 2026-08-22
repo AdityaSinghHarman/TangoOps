@@ -751,6 +751,16 @@ def load_pdf_export_enabled(biz_id):
     return value in ("csv_pdf", "csv_pdf_scheduled")
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def load_subscription(biz_id):
+    # Pre-existing bug fix: this must be defined before the Phase 7
+    # restricted-state block below uses it — that block was moved earlier
+    # in the file by commit fc05f1f without moving this definition with
+    # it, causing a NameError on every page load for any business_id user
+    # (everyone except Platform Admin) on both dev and prod.
+    return store.get_subscription(biz_id)
+
+
 def poster_studio_enabled() -> bool:
     """App-level feature flag (Section 54), not tied to a tenant's plan —
     AI Poster Studio is a new, isolated feature rather than a billed
@@ -1339,11 +1349,6 @@ def load_business_memberships(biz_id):
 @st.cache_data(ttl=60, show_spinner=False)
 def load_plans():
     return store.get_plans()
-
-
-@st.cache_data(ttl=15, show_spinner=False)
-def load_subscription(biz_id):
-    return store.get_subscription(biz_id)
 
 
 @st.cache_data(ttl=15, show_spinner=False)
