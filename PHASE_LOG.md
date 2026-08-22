@@ -2142,4 +2142,6 @@ named actions (create, upload, export from all five locations, invite)
 are blocked when restricted, and confirmed every non-named write action
 (assign, mark paid, edit commission, archive/clear period, disable/enable/
 reset password) continues to work normally. Result: **tested as
-expected.** Not yet pushed to prod.
+expected.** Pushed to `main` at commit `6312464` (fast-forward from
+`4f4cb36`), tested on prod 2026-08-22: **tested as expected.** **Live and
+verified on both dev and prod.**
