@@ -636,38 +636,78 @@ def get_database_role_posture() -> dict:
         p.putconn(conn)
 
 
-def _query(sql, params=None, columns=None):
+def _set_tenant_scope(cur, business_id=None, admin_scope=False):
+    """Sets the two session GUCs the tenant-isolation RLS policies check
+    (Phase 8, first slice - see PHASE_LOG.md). Called at the top of every
+    _query/_execute/_execute_values call, and inside the handful of
+    multi-statement functions that manage their own connection, so a
+    pooled connection never carries a previous call's tenant scope
+    forward - the pool (_pool()) is a single cached object shared by every
+    concurrent user, and connections are checked out/returned per call,
+    not per session.
+
+    Fails closed: a call passing neither business_id nor admin_scope=True
+    clears both GUCs, so tenant-scoped tables return zero rows rather than
+    every tenant's rows - a missed call site becomes a visible bug, not a
+    silent cross-tenant leak."""
+    cur.execute(
+        "SELECT set_config('app.current_business_id', %s, false), "
+        "set_config('app.bypass_tenant_scope', %s, false)",
+        (business_id or "", "true" if admin_scope else "false"),
+    )
+
+
+def _reset_tenant_scope(cur):
+    cur.execute(
+        "SELECT set_config('app.current_business_id', '', false), "
+        "set_config('app.bypass_tenant_scope', 'false', false)"
+    )
+
+
+def _query(sql, params=None, columns=None, business_id=None, admin_scope=False):
     p = _pool()
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, params or ())
-            rows = cur.fetchall()
-            cols = columns or [d[0] for d in cur.description]
+            _set_tenant_scope(cur, business_id, admin_scope)
+            try:
+                cur.execute(sql, params or ())
+                rows = cur.fetchall()
+                cols = columns or [d[0] for d in cur.description]
+            finally:
+                _reset_tenant_scope(cur)
         return pd.DataFrame(rows, columns=cols)
     finally:
         p.putconn(conn)
 
 
-def _execute(sql, params=None):
+def _execute(sql, params=None, business_id=None, admin_scope=False):
     p = _pool()
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, params or ())
+            _set_tenant_scope(cur, business_id, admin_scope)
+            try:
+                cur.execute(sql, params or ())
+            finally:
+                _reset_tenant_scope(cur)
         conn.commit()
     finally:
         p.putconn(conn)
 
 
-def _execute_values(sql, rows):
+def _execute_values(sql, rows, business_id=None, admin_scope=False):
     if not rows:
         return
     p = _pool()
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_values(cur, sql, rows)
+            _set_tenant_scope(cur, business_id, admin_scope)
+            try:
+                psycopg2.extras.execute_values(cur, sql, rows)
+            finally:
+                _reset_tenant_scope(cur)
         conn.commit()
     finally:
         p.putconn(conn)
@@ -764,18 +804,22 @@ def create_user(username: str, name: str, password_plain: str, role: str,
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (username, name, password_hash, role, business_id, sub_agency, status) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (username, name, password_hash, role, business_id, sub_agency, status),
-            )
-            cur.execute(
-                "INSERT INTO memberships (business_id, username, role, sub_agency, status, invited_by) "
-                "VALUES (%s,%s,%s,%s,%s,%s) "
-                "ON CONFLICT (business_id, username) DO UPDATE SET "
-                "role=EXCLUDED.role, sub_agency=EXCLUDED.sub_agency, status=EXCLUDED.status",
-                (business_id, username, role, sub_agency, status, _normalize_username(invited_by)),
-            )
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(
+                    "INSERT INTO users (username, name, password_hash, role, business_id, sub_agency, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (username, name, password_hash, role, business_id, sub_agency, status),
+                )
+                cur.execute(
+                    "INSERT INTO memberships (business_id, username, role, sub_agency, status, invited_by) "
+                    "VALUES (%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (business_id, username) DO UPDATE SET "
+                    "role=EXCLUDED.role, sub_agency=EXCLUDED.sub_agency, status=EXCLUDED.status",
+                    (business_id, username, role, sub_agency, status, _normalize_username(invited_by)),
+                )
+            finally:
+                _reset_tenant_scope(cur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -796,14 +840,21 @@ def set_user_status(username: str, status: str):
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE users SET status=%s WHERE lower(trim(username))=%s",
-                (status, normalized),
-            )
-            cur.execute(
-                "UPDATE memberships SET status=%s WHERE lower(trim(username))=%s",
-                (status, normalized),
-            )
+            # admin_scope: this updates a username's membership rows across
+            # every business it belongs to, not one tenant - same reasoning
+            # as get_memberships(username) below.
+            _set_tenant_scope(cur, admin_scope=True)
+            try:
+                cur.execute(
+                    "UPDATE users SET status=%s WHERE lower(trim(username))=%s",
+                    (status, normalized),
+                )
+                cur.execute(
+                    "UPDATE memberships SET status=%s WHERE lower(trim(username))=%s",
+                    (status, normalized),
+                )
+            finally:
+                _reset_tenant_scope(cur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -832,13 +883,15 @@ def get_memberships(username: str) -> pd.DataFrame:
         "SELECT business_id, role, sub_agency, status, expires_at, profile_url, created_at "
         "FROM memberships WHERE lower(trim(username))=%s ORDER BY created_at DESC",
         (_normalize_username(username),),
+        admin_scope=True,  # looked up by identity, spans every business this login belongs to
     )
 
 
 def get_all_memberships() -> pd.DataFrame:
     return _query(
         "SELECT business_id, username, role, sub_agency, status, invited_by, "
-        "expires_at, profile_url, created_at FROM memberships ORDER BY created_at"
+        "expires_at, profile_url, created_at FROM memberships ORDER BY created_at",
+        admin_scope=True,  # explicit platform-wide view
     )
 
 
@@ -847,6 +900,7 @@ def get_business_memberships(business_id: str) -> pd.DataFrame:
         "SELECT username, role, sub_agency, status, invited_by, created_at FROM memberships "
         "WHERE business_id=%s ORDER BY created_at",
         (business_id,),
+        business_id=business_id,
     )
 
 
@@ -854,6 +908,7 @@ def set_membership_status(business_id: str, username: str, status: str):
     _execute(
         "UPDATE memberships SET status=%s WHERE business_id=%s AND lower(trim(username))=%s",
         (status, business_id, _normalize_username(username)),
+        business_id=business_id,
     )
 
 
@@ -938,6 +993,7 @@ def has_feature(business_id: str, feature_key: str):
     override = _query(
         "SELECT value_type, value FROM entitlements WHERE business_id=%s AND feature_key=%s",
         (business_id, feature_key),
+        business_id=business_id,
     )
     if not override.empty:
         row = override.iloc[0]
@@ -959,6 +1015,7 @@ def get_entitlement_overrides(business_id: str) -> pd.DataFrame:
         "SELECT feature_key, value_type, value, overridden_by, overridden_at "
         "FROM entitlements WHERE business_id=%s ORDER BY feature_key",
         (business_id,),
+        business_id=business_id,
     )
 
 
@@ -971,6 +1028,7 @@ def set_entitlement_override(business_id: str, feature_key: str, value_type: str
         "value_type=EXCLUDED.value_type, value=EXCLUDED.value, "
         "overridden_by=EXCLUDED.overridden_by, overridden_at=now()",
         (business_id, feature_key, value_type, value, _normalize_username(overridden_by)),
+        business_id=business_id,
     )
 
 
@@ -978,6 +1036,7 @@ def clear_entitlement_override(business_id: str, feature_key: str):
     _execute(
         "DELETE FROM entitlements WHERE business_id=%s AND feature_key=%s",
         (business_id, feature_key),
+        business_id=business_id,
     )
 
 
@@ -1001,6 +1060,7 @@ def get_billing_events(business_id: str) -> pd.DataFrame:
         "SELECT event_type, method, amount, currency, reference_note, recorded_by, created_at "
         "FROM billing_events WHERE business_id=%s ORDER BY created_at DESC",
         (business_id,),
+        business_id=business_id,
     )
 
 
@@ -1024,25 +1084,29 @@ def record_payment(business_id: str, plan_code: str, billing_cycle: str, amount,
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO subscriptions "
-                "(business_id, plan_code, billing_cycle, status, auto_renew, "
-                "current_period_start, current_period_end, created_by) "
-                "VALUES (%s,%s,%s,'active',false,%s,%s,%s) "
-                "ON CONFLICT (business_id) DO UPDATE SET "
-                "plan_code=EXCLUDED.plan_code, billing_cycle=EXCLUDED.billing_cycle, "
-                "status='active', auto_renew=false, "
-                "current_period_start=EXCLUDED.current_period_start, "
-                "current_period_end=EXCLUDED.current_period_end, updated_at=now()",
-                (business_id, plan_code, billing_cycle, period_start, period_end,
-                 _normalize_username(recorded_by)),
-            )
-            cur.execute(
-                "INSERT INTO billing_events "
-                "(business_id, event_type, method, amount, currency, reference_note, recorded_by) "
-                "VALUES (%s,'payment_recorded',%s,%s,'INR',%s,%s)",
-                (business_id, method, amount, reference_note, _normalize_username(recorded_by)),
-            )
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(
+                    "INSERT INTO subscriptions "
+                    "(business_id, plan_code, billing_cycle, status, auto_renew, "
+                    "current_period_start, current_period_end, created_by) "
+                    "VALUES (%s,%s,%s,'active',false,%s,%s,%s) "
+                    "ON CONFLICT (business_id) DO UPDATE SET "
+                    "plan_code=EXCLUDED.plan_code, billing_cycle=EXCLUDED.billing_cycle, "
+                    "status='active', auto_renew=false, "
+                    "current_period_start=EXCLUDED.current_period_start, "
+                    "current_period_end=EXCLUDED.current_period_end, updated_at=now()",
+                    (business_id, plan_code, billing_cycle, period_start, period_end,
+                     _normalize_username(recorded_by)),
+                )
+                cur.execute(
+                    "INSERT INTO billing_events "
+                    "(business_id, event_type, method, amount, currency, reference_note, recorded_by) "
+                    "VALUES (%s,'payment_recorded',%s,%s,'INR',%s,%s)",
+                    (business_id, method, amount, reference_note, _normalize_username(recorded_by)),
+                )
+            finally:
+                _reset_tenant_scope(cur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1061,6 +1125,7 @@ def log_security_event(event_type: str, actor_username: str = "", actor_role: st
         "VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (business_id, _normalize_username(actor_username), actor_role, event_type,
          target_type, str(target_id or "")[:500], str(details or "")[:2000]),
+        business_id=business_id, admin_scope=(business_id is None),
     )
 
 
@@ -1069,6 +1134,7 @@ def get_security_audit(business_id: str, limit: int = 200) -> pd.DataFrame:
         "SELECT created_at, actor_username, actor_role, event_type, target_type, target_id, details "
         "FROM security_audit WHERE business_id=%s ORDER BY created_at DESC LIMIT %s",
         (business_id, max(1, min(int(limit), 1000))),
+        business_id=business_id,
     )
 
 
@@ -1082,6 +1148,7 @@ def get_payout_rules(business_id: str) -> pd.DataFrame:
         "FROM broadcaster_payout_rules WHERE business_id=%s "
         "ORDER BY effective_from DESC, broadcaster_name, profile_url",
         (business_id,),
+        business_id=business_id,
     )
 
 
@@ -1094,6 +1161,7 @@ def get_effective_payout_rules(business_id: str, period: str) -> pd.DataFrame:
         "WHERE business_id=%s AND effective_from<=%s "
         "ORDER BY profile_url, effective_from DESC",
         (business_id, period),
+        business_id=business_id,
     )
 
 
@@ -1121,6 +1189,7 @@ def save_payout_rule(business_id: str, profile_url: str, broadcaster_name: str,
         "created_by=EXCLUDED.created_by, updated_at=now()",
         (business_id, profile_url, broadcaster_name, effective_from,
          agency_rate, payout_rate, _normalize_username(created_by)),
+        business_id=business_id,
     )
 
 
@@ -1129,6 +1198,7 @@ def get_payout_statuses(business_id: str, period: str) -> pd.DataFrame:
         "SELECT profile_url, status, paid_at, paid_by, updated_at "
         "FROM broadcaster_payout_status WHERE business_id=%s AND period=%s",
         (business_id, period),
+        business_id=business_id,
     )
 
 
@@ -1150,13 +1220,17 @@ def mark_payouts_paid(business_id: str, period: str, profile_urls: list,
         "status=EXCLUDED.status, paid_at=EXCLUDED.paid_at, "
         "paid_by=EXCLUDED.paid_by, updated_at=EXCLUDED.updated_at",
         rows,
+        business_id=business_id,
     )
 
 
 # ---------------- agencies ----------------
 
 def get_agencies(business_id: str) -> list:
-    df = _query("SELECT agency_name FROM agencies WHERE business_id=%s ORDER BY agency_name", (business_id,))
+    df = _query(
+        "SELECT agency_name FROM agencies WHERE business_id=%s ORDER BY agency_name", (business_id,),
+        business_id=business_id,
+    )
     return df["agency_name"].tolist() if not df.empty else []
 
 
@@ -1165,6 +1239,7 @@ def get_agency_details(business_id: str) -> pd.DataFrame:
         "SELECT agency_name, commission_pct, created_at FROM agencies "
         "WHERE business_id=%s ORDER BY agency_name",
         (business_id,),
+        business_id=business_id,
     )
 
 
@@ -1172,6 +1247,7 @@ def get_agency_commission(business_id: str, agency_name: str):
     df = _query(
         "SELECT commission_pct FROM agencies WHERE business_id=%s AND agency_name=%s",
         (business_id, agency_name),
+        business_id=business_id,
     )
     if df.empty or pd.isna(df.iloc[0]["commission_pct"]):
         return None
@@ -1184,6 +1260,7 @@ def add_agency(name: str, business_id: str, commission_pct: float):
         "ON CONFLICT (business_id, agency_name) DO UPDATE "
         "SET commission_pct=EXCLUDED.commission_pct",
         (business_id, name, commission_pct),
+        business_id=business_id,
     )
 
 
@@ -1191,6 +1268,7 @@ def update_agency_commission(business_id: str, agency_name: str, commission_pct:
     _execute(
         "UPDATE agencies SET commission_pct=%s WHERE business_id=%s AND agency_name=%s",
         (commission_pct, business_id, agency_name),
+        business_id=business_id,
     )
 
 
@@ -1203,7 +1281,10 @@ RAW_COLS = ["business_id", "upload_id", "uploaded_at", "period", "period_type", 
 
 
 def get_raw_uploads(business_id: str) -> pd.DataFrame:
-    df = _query(f"SELECT {', '.join(RAW_COLS)} FROM raw_uploads WHERE business_id=%s", (business_id,))
+    df = _query(
+        f"SELECT {', '.join(RAW_COLS)} FROM raw_uploads WHERE business_id=%s", (business_id,),
+        business_id=business_id,
+    )
     if df.empty:
         return df
     numeric_cols = ["diamonds_earned", "diamonds_redeemed", "my_earnings_diamonds",
@@ -1233,14 +1314,18 @@ def save_period(clean_df: pd.DataFrame, period: str, period_type: str, business_
     conn = p.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM raw_uploads WHERE business_id=%s AND period=%s "
-                "AND period_type=%s AND profile_url = ANY(%s)",
-                (business_id, period, period_type, profiles),
-            )
-            psycopg2.extras.execute_values(
-                cur, f"INSERT INTO raw_uploads ({', '.join(RAW_COLS)}) VALUES %s", rows,
-            )
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(
+                    "DELETE FROM raw_uploads WHERE business_id=%s AND period=%s "
+                    "AND period_type=%s AND profile_url = ANY(%s)",
+                    (business_id, period, period_type, profiles),
+                )
+                psycopg2.extras.execute_values(
+                    cur, f"INSERT INTO raw_uploads ({', '.join(RAW_COLS)}) VALUES %s", rows,
+                )
+            finally:
+                _reset_tenant_scope(cur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1253,6 +1338,7 @@ def clear_period(period: str, period_type: str, business_id: str):
     _execute(
         "DELETE FROM raw_uploads WHERE business_id=%s AND period=%s AND period_type=%s",
         (business_id, period, period_type),
+        business_id=business_id,
     )
 
 
@@ -1260,6 +1346,7 @@ def list_periods(period_type: str, business_id: str, exclude_archived: bool = Tr
     df = _query(
         "SELECT DISTINCT period FROM raw_uploads WHERE business_id=%s AND period_type=%s ORDER BY period",
         (business_id, period_type),
+        business_id=business_id,
     )
     periods = df["period"].tolist() if not df.empty else []
     if exclude_archived:
@@ -1274,6 +1361,7 @@ def get_assignments(business_id: str) -> pd.DataFrame:
     return _query(
         "SELECT profile_url, broadcaster_name, sub_agency, assigned_at FROM assignments WHERE business_id=%s",
         (business_id,),
+        business_id=business_id,
     )
 
 
@@ -1288,12 +1376,14 @@ def assign_broadcasters(profile_urls: list, names: dict, sub_agency: str, busine
         "sub_agency=EXCLUDED.sub_agency, broadcaster_name=EXCLUDED.broadcaster_name, "
         "assigned_at=EXCLUDED.assigned_at",
         rows,
+        business_id=business_id,
     )
     log_rows = [(business_id, u, names.get(u, ""), sub_agency, assigned_by, now) for u in profile_urls]
     _execute_values(
         "INSERT INTO assignment_log (business_id, profile_url, broadcaster_name, sub_agency, assigned_by, assigned_at) "
         "VALUES %s",
         log_rows,
+        business_id=business_id,
     )
 
 
@@ -1302,6 +1392,7 @@ def get_assignment_history(profile_url: str, business_id: str) -> pd.DataFrame:
         "SELECT sub_agency, assigned_by, assigned_at FROM assignment_log "
         "WHERE business_id=%s AND profile_url=%s ORDER BY assigned_at DESC",
         (business_id, profile_url),
+        business_id=business_id,
     )
 
 
@@ -1313,13 +1404,17 @@ def get_recent_platform_activity(limit: int = 12) -> pd.DataFrame:
         "FROM assignment_log al LEFT JOIN businesses b ON b.business_id=al.business_id "
         "ORDER BY al.assigned_at DESC LIMIT %s",
         (int(limit),),
+        admin_scope=True,  # explicit cross-agency platform-admin view
     )
 
 
 # ---------------- archive ----------------
 
 def get_archived_periods(business_id: str) -> set:
-    df = _query("SELECT period, period_type FROM archived_periods WHERE business_id=%s", (business_id,))
+    df = _query(
+        "SELECT period, period_type FROM archived_periods WHERE business_id=%s", (business_id,),
+        business_id=business_id,
+    )
     if df.empty:
         return set()
     return set(zip(df["period"], df["period_type"]))
@@ -1330,6 +1425,7 @@ def archive_period(period: str, period_type: str, business_id: str):
         "INSERT INTO archived_periods (business_id, period, period_type) VALUES (%s,%s,%s) "
         "ON CONFLICT (business_id, period, period_type) DO NOTHING",
         (business_id, period, period_type),
+        business_id=business_id,
     )
 
 
@@ -1337,6 +1433,7 @@ def unarchive_period(period: str, period_type: str, business_id: str):
     _execute(
         "DELETE FROM archived_periods WHERE business_id=%s AND period=%s AND period_type=%s",
         (business_id, period, period_type),
+        business_id=business_id,
     )
 
 

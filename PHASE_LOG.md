@@ -1888,3 +1888,86 @@ prod 2026-08-22: **tested as expected.** No migration/grant script was
 needed for this slice (no schema change - `subscriptions.status` already
 supported `grace`/`restricted` since Phase 2). **Live and verified on
 both dev and prod.**
+
+---
+
+## Phase 8, first slice, Step 1: RLS tenant-isolation plumbing (zero behavior change)
+
+**Finding that started this:** Section 10 of the blueprint claims RLS
+provides real tenant isolation ("a query literally cannot return another
+tenant's rows, even from a bug in application code"). Checked
+`database/restricted_role_setup.sql` - the policy granted to the app's
+own runtime role (`tangoops_app`) on every table is `USING (true) WITH
+CHECK (true)`, which is **no restriction at all**. RLS today only blocks
+Supabase's `anon`/`authenticated` REST roles from touching these tables
+directly. Every bit of tenant isolation currently in production is
+`store.py` remembering to add `WHERE business_id=%s` to each query, with
+zero database-level backstop. **Decision (user, 2026-08-22): fix this
+properly before any other Phase 8 "testing & migration" work** - a
+detailed implementation plan was written, reviewed via an Explore-agent
+inventory of every call site, and approved before any code was touched
+(see the plan mode transcript / `/Users/Apple/.claude/plans/hidden-gliding-kahan.md`).
+
+**Mechanism:** a Postgres session variable pair -
+`app.current_business_id` and `app.bypass_tenant_scope` - set via
+`SELECT set_config(..., is_local=false)` (not plain `SET`, so it can be
+parameterized safely through psycopg2; not `SET LOCAL`, because `_pool()`
+is a `@st.cache_resource`-cached singleton connection pool shared by every
+concurrent user, and an Explore pass confirmed `_query()` never calls
+`commit()`/`rollback()` - relying on transaction boundaries to reset a
+`SET LOCAL` would leak one tenant's scope into whatever request reuses
+that pooled connection next). `_set_tenant_scope()`/`_reset_tenant_scope()`
+wrap every `_query`/`_execute`/`_execute_values` call (and the four
+multi-statement functions that manage their own connection directly:
+`create_user`, `set_user_status`, `record_payment`, `save_period`),
+guaranteeing the GUCs are cleared before a connection returns to the pool
+regardless of success or exception. **Fails closed**: a call passing
+neither `business_id=` nor `admin_scope=True` clears both GUCs, so once
+enforcement is turned on (Step 2, not this step), a missed call site
+would show zero rows (a visible bug) rather than leak cross-tenant data
+(a silent security hole).
+
+**This step is Step 1 of 3 - plumbing only, RLS policy left unchanged
+(`USING (true)`)**, on purpose: adding the `business_id=`/`admin_scope=`
+parameters everywhere first, with zero enforcement yet, means a
+misclassified call site breaks nothing right now - it's caught by testing
+this step in isolation before Step 2 makes the policy actually check
+anything.
+
+**Scope decided up front:** 11 tables get real enforcement in Step 2
+(`memberships`, `entitlements`, `agencies`, `raw_uploads`, `assignments`,
+`assignment_log`, `archived_periods`, `security_audit`,
+`broadcaster_payout_rules`, `broadcaster_payout_status`,
+`billing_events`) - each already had a real `business_id`-filtered
+function, confirmed by an Explore-agent inventory, no "fetch all then
+filter in pandas" pattern to worry about. **`businesses`, `subscriptions`,
+`users` are deliberately deferred, RLS stays permissive on them for
+now** - all three either use `business_id` as their own primary key or
+are read via a fetch-all-then-filter pattern in `app.py`
+(`load_businesses_df()` wraps the unfiltered `get_businesses()`; there's
+no `get_business(business_id)` single-row function). Properly securing
+those three means also touching `app.py`'s identity-resolution code path
+(`current_user_context()`, which runs on every login) - meaningfully
+higher risk, better as its own dedicated follow-up once this mechanism is
+proven safe on the lower-risk tables. `roles`, `permissions`,
+`role_permissions`, `plans`, `plan_features`, `profiles` have no
+`business_id` column at all and correctly stay fully permissive.
+
+**Verification before deploy:** two independent full-file audits (one
+building the call-site inventory, one auditing every `_query`/`_execute`/
+`_execute_values` call afterward) confirm all ~45 call sites touching an
+in-scope table carry `business_id=` or `admin_scope=True`, and every
+`admin_scope=True` usage is commented with why it's genuinely cross-tenant
+(`get_memberships`/`set_user_status` - spans every business a username
+belongs to; `get_all_memberships`/`get_recent_platform_activity` -
+explicit platform-wide views; `log_security_event` - `admin_scope=True`
+only when `business_id=None`, i.e. a platform-level event). No missing or
+misclassified call sites found.
+
+**Expected result:** since RLS enforcement itself is unchanged in this
+step, the app should behave **identically** to before this deploy - this
+step's real test is a full manual click-through of every page/role in
+dev, confirming nothing changed, not a new feature to try out.
+
+**Status:** Implemented, compiled, self-reviewed, independently audited
+twice. Not yet pushed to dev.
