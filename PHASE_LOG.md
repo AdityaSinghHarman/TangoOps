@@ -2136,4 +2136,10 @@ disable/enable a user) still works. Then revert:
 UPDATE subscriptions SET status='active' WHERE business_id = '<business_id>';
 ```
 
-**Status:** Implemented, compiled, self-reviewed. Not yet pushed to dev.
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `fc05f1f`. Tested on dev by the user 2026-08-22: confirmed all four
+named actions (create, upload, export from all five locations, invite)
+are blocked when restricted, and confirmed every non-named write action
+(assign, mark paid, edit commission, archive/clear period, disable/enable/
+reset password) continues to work normally. Result: **tested as
+expected.** Not yet pushed to prod.
