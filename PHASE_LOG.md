@@ -2145,3 +2145,82 @@ reset password) continues to work normally. Result: **tested as
 expected.** Pushed to `main` at commit `6312464` (fast-forward from
 `4f4cb36`), tested on prod 2026-08-22: **tested as expected.** **Live and
 verified on both dev and prod.**
+
+## 2026-08-22 — Performance pass + agency reflected in the URL
+
+**What happened:** the user reported the dashboard felt slow and asked for
+this to be investigated and fixed; separately asked for the logged-in
+agency to show in the URL (e.g. `/NorthTalent`). Not part of the 8-phase
+SaaS plan - general app.py/store.py findings.
+
+**Performance findings and fixes** (from a dedicated investigation agent,
+ranked by likely real-world impact):
+1. `build_credentials()` (`app.py`) called `stauth.Hasher().hash()` —
+   bcrypt, deliberately slow — **unconditionally on every single script
+   rerun**, for every user's every click, not just at login. Now wrapped
+   in `@st.cache_data(ttl=30)`, matching its data dependencies' TTL.
+   `refresh_caches()` clears it so a newly created/edited login can sign
+   in immediately rather than waiting out the TTL.
+2. `store.py`'s connection pool used `psycopg2.pool.SimpleConnectionPool`,
+   which psycopg2 explicitly documents as unsafe for concurrent
+   `getconn()`/`putconn()` from multiple threads without external locking.
+   Streamlit runs each concurrent session on its own thread, all sharing
+   this one `st.cache_resource`-cached pool object. Switched to
+   `ThreadedConnectionPool` (same 1-5 sizing) — a correctness fix, not
+   just performance; plausibly a contributor to some of the intermittent
+   pooler connection issues already logged elsewhere in this file.
+3. `store._query()` never called `conn.commit()` (unlike `_execute`/
+   `_execute_values`, which do) - every SELECT left its transaction open
+   on the pooled connection, since autocommit is off and nothing else
+   necessarily reuses that same connection soon enough to close it. Fixed
+   by adding `conn.commit()` after `_query()`'s fetch.
+4. Platform Admin's Businesses page ran an N+1 loop — one
+   `store.get_agencies(bid)` call per business, every render, just to
+   count agencies. Replaced with `store.get_agency_counts_by_business()`,
+   a single `GROUP BY business_id` query (`admin_scope=True`), wrapped in
+   a cached `load_agency_counts_by_business()`.
+5. `refresh_caches()` clears all 13 (now 14) of app.py's caches,
+   including the full broadcaster roster (`load_all_raw`) and
+   assignments/agencies - but was being called from a plain display-name
+   or avatar change on My Profile, forcing an unrelated expensive re-fetch
+   on the next page. Added a scoped `refresh_profile_cache()` (clears only
+   `load_profile`) for those three call sites; every other call site keeps
+   using the full `refresh_caches()` unchanged.
+6. Wrapped several previously-uncached direct `store.*` calls in cached
+   loaders: `get_agency_details` (ttl=15), `get_security_audit` (ttl=15),
+   `get_recent_platform_activity` (ttl=30), `get_database_role_posture`
+   (ttl=60 - role privileges only change via manual DB admin action, so a
+   short cache is a safe trade for removing the round trip from every
+   Businesses-page rerun).
+7. **Not fixable in code, flagged for awareness**: Streamlit Community
+   Cloud's free-tier CPU/RAM is a fixed ceiling. If perceived slowness
+   persists after the above, that's a hosting-tier decision, not a further
+   code fix.
+
+**Agency-in-the-URL:** added `?agency=<slug>` (e.g. `?agency=north-talent-
+network`, derived from `business_name`) to the URL once logged into a
+tenant. Explicitly scoped down from what was asked (a real path like
+`streamoperiq.com/NorthTalent`) - Streamlit Community Cloud's shared
+single URL has no per-tenant subdomain/path routing without a custom
+domain + reverse proxy in front, which is separate infrastructure work,
+not a code change. This query-param version is cosmetic/read-only: always
+derived from the already-authenticated `business_id`, never read back to
+decide which tenant's data loads, so it can't be used to bypass tenant
+isolation by hand-editing the URL.
+
+**How to verify:** log in as any business's Owner; confirm the browser
+URL picks up `?agency=<slug>` matching that business's name. Click around
+several pages and confirm nothing feels broken; a repeat login/logout
+should show snappier response on the very first interaction (the bcrypt
+fix). On the Businesses page (Platform Admin), confirm the "Sub-Agencies"
+KPI and each business row's agency count still match what Sub-Agency
+Management shows for that business.
+
+**Status:** Implemented, compiled, self-reviewed. Pushed to `dev` at
+commit `e934774`. Tested on dev by the user 2026-08-22: confirmed
+working. Cherry-picked (not fast-forwarded - `dev` also carries the
+not-yet-approved-for-prod AI Poster Studio feature ahead of it, same
+pattern as the earlier `load_subscription` fix) to `main` at commit
+`7520c55`. **Live on dev, live on prod** - prod has not yet been
+independently re-verified by the user post-push (only dev was tested
+before the push was approved).
