@@ -44,6 +44,7 @@ import uuid
 import pandas as pd
 import streamlit as st
 import psycopg2
+import psycopg2.errors
 import psycopg2.extras
 from psycopg2 import pool as pg_pool
 
@@ -525,6 +526,395 @@ CREATE TABLE IF NOT EXISTS billing_events (
 CREATE INDEX IF NOT EXISTS idx_billing_events_business
     ON billing_events (business_id, created_at DESC);
 
+-- ---------------------------------------------------------------------------
+-- Reward Plan Management System. Fully additive: broadcaster_payout_rules /
+-- broadcaster_payout_status / agencies.commission_pct above are untouched and
+-- keep working exactly as before for any agency that hasn't opted in here.
+-- This is a second, parallel reward mechanism an Owner opts into per-
+-- broadcaster/per-recruiter by explicitly creating and assigning a plan - it
+-- is not a migration of the existing percentage payout/commission data (user
+-- confirmed 2026-08-22: keep the two systems fully parallel).
+-- Installed into the "extensions" schema, not "public" (Supabase's standard
+-- convention, and what the Security Advisor expects) - the CREATE EXTENSION
+-- default schema is only fixed up after install since IF NOT EXISTS doesn't
+-- accept a SCHEMA clause combined with a pre-existing extensions schema
+-- reliably across environments; ALTER EXTENSION ... SET SCHEMA is idempotent.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'extensions')
+       AND EXISTS (
+           SELECT 1 FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+           WHERE e.extname = 'btree_gist' AND n.nspname = 'public'
+       ) THEN
+        ALTER EXTENSION btree_gist SET SCHEMA extensions;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS reward_plans (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL REFERENCES businesses(business_id),
+    name TEXT NOT NULL,
+    description TEXT,
+    recipient_type TEXT NOT NULL,
+    reward_method TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    plan_effective_from TEXT,
+    plan_effective_to TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    archived_by TEXT,
+    archived_at TIMESTAMP,
+    CONSTRAINT reward_plans_recipient_type_valid
+        CHECK (recipient_type IN ('broadcaster', 'recruiter')),
+    CONSTRAINT reward_plans_reward_method_valid
+        CHECK (reward_method IN (
+            'percentage_cash', 'fixed_cash', 'fixed_coins',
+            'diamond_milestone_cash', 'diamond_milestone_coins',
+            'custom_milestone_cash', 'custom_milestone_coins', 'hybrid'
+        )),
+    CONSTRAINT reward_plans_status_valid
+        CHECK (status IN ('draft', 'active', 'archived')),
+    CONSTRAINT reward_plans_plan_from_format
+        CHECK (plan_effective_from IS NULL OR plan_effective_from ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT reward_plans_plan_to_format
+        CHECK (plan_effective_to IS NULL OR plan_effective_to ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+);
+CREATE INDEX IF NOT EXISTS idx_reward_plans_business
+    ON reward_plans (business_id, recipient_type, status);
+
+-- Immutable, effective-dated plan config. Editing a plan in the UI always
+-- inserts a new version row rather than mutating an old one, so a reward
+-- already calculated against version N keeps its config_snapshot (see
+-- reward_calculations below) meaningful forever, even after the plan moves
+-- on to version N+1. Lookup uses the same DISTINCT ON pattern already proven
+-- by get_effective_payout_rules() below.
+CREATE TABLE IF NOT EXISTS reward_plan_versions (
+    id BIGSERIAL PRIMARY KEY,
+    plan_id BIGINT NOT NULL REFERENCES reward_plans(id),
+    business_id TEXT NOT NULL,
+    version_number INT NOT NULL,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tier_calculation_mode TEXT,
+    frequency TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    UNIQUE (plan_id, version_number),
+    CONSTRAINT reward_plan_versions_period_format
+        CHECK (effective_from ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT reward_plan_versions_period_to_format
+        CHECK (effective_to IS NULL OR effective_to ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT reward_plan_versions_tier_mode_valid
+        CHECK (tier_calculation_mode IS NULL OR tier_calculation_mode IN
+               ('highest_only', 'cumulative', 'incremental_difference')),
+    CONSTRAINT reward_plan_versions_frequency_valid
+        CHECK (frequency IS NULL OR frequency IN
+               ('lifetime_once', 'monthly_once', 'period_once', 'manual_repeatable'))
+);
+CREATE INDEX IF NOT EXISTS idx_reward_plan_versions_lookup
+    ON reward_plan_versions (business_id, plan_id, effective_from DESC);
+
+-- milestone_key is stable across an edit that "keeps" this milestone in a
+-- new version (the app copies the key forward; a genuinely new milestone
+-- gets a fresh one). This is the lifetime-dedup key reward_calculations
+-- uses below, so a plan edit can never let a lifetime milestone re-fire.
+CREATE TABLE IF NOT EXISTS reward_plan_milestones (
+    id BIGSERIAL PRIMARY KEY,
+    plan_version_id BIGINT NOT NULL REFERENCES reward_plan_versions(id),
+    business_id TEXT NOT NULL,
+    milestone_key UUID NOT NULL DEFAULT gen_random_uuid(),
+    order_index INT NOT NULL,
+    name TEXT,
+    description TEXT,
+    trigger_type TEXT NOT NULL,
+    threshold NUMERIC,
+    reward_value NUMERIC NOT NULL,
+    unit TEXT NOT NULL,
+    requires_manual_approval BOOLEAN NOT NULL DEFAULT false,
+    max_total_reward_per_broadcaster NUMERIC,
+    frequency TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    UNIQUE (plan_version_id, order_index),
+    UNIQUE (plan_version_id, threshold),
+    CONSTRAINT reward_plan_milestones_unit_valid CHECK (unit IN ('cash', 'coins')),
+    CONSTRAINT reward_plan_milestones_threshold_nonneg
+        CHECK (threshold IS NULL OR threshold >= 0),
+    CONSTRAINT reward_plan_milestones_reward_nonneg CHECK (reward_value >= 0),
+    CONSTRAINT reward_plan_milestones_trigger_type_valid
+        CHECK (trigger_type IN (
+            'diamonds_redeemed_threshold', 'diamonds_earned_threshold',
+            'signup_completed', 'first_live_completed',
+            'streaming_days_target', 'streaming_hours_target',
+            'diamonds_earned_target', 'diamonds_redeemed_target',
+            'manual_approval', 'custom'
+        )),
+    CONSTRAINT reward_plan_milestones_frequency_valid
+        CHECK (frequency IS NULL OR frequency IN
+               ('lifetime_once', 'monthly_once', 'period_once', 'manual_repeatable'))
+);
+CREATE INDEX IF NOT EXISTS idx_reward_plan_milestones_version
+    ON reward_plan_milestones (business_id, plan_version_id, order_index);
+
+-- Assignment tables: each carries a GENERATED daterange purely to drive a
+-- real EXCLUDE constraint - two overlapping assignments for the same
+-- recipient becomes a database error (23P01), not just a UI check.
+-- "Remove a future assignment" = DELETE a row with effective_from in the
+-- future; past/current rows are never deleted, only superseded by a new
+-- later-dated row, so historical calculations never shift underneath.
+CREATE TABLE IF NOT EXISTS broadcaster_reward_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    profile_url TEXT NOT NULL,
+    plan_id BIGINT NOT NULL REFERENCES reward_plans(id),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    -- make_date()/split_part() rather than to_date(): a GENERATED column's
+    -- expression must be IMMUTABLE and to_date() is only STABLE (locale-
+    -- dependent format parsing), which Postgres rejects here (42P17).
+    assignment_range daterange GENERATED ALWAYS AS (
+        daterange(
+            make_date(split_part(effective_from, '-', 1)::int, split_part(effective_from, '-', 2)::int, 1),
+            CASE WHEN effective_to IS NULL THEN NULL
+                 ELSE (make_date(split_part(effective_to, '-', 1)::int, split_part(effective_to, '-', 2)::int, 1)
+                       + INTERVAL '1 month')::date END,
+            '[)'
+        )
+    ) STORED,
+    assigned_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT braa_from_format CHECK (effective_from ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT braa_to_format CHECK (effective_to IS NULL OR effective_to ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    EXCLUDE USING gist (business_id WITH =, profile_url WITH =, assignment_range WITH &&)
+);
+CREATE INDEX IF NOT EXISTS idx_braa_lookup
+    ON broadcaster_reward_assignments (business_id, profile_url, effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_braa_plan_id ON broadcaster_reward_assignments (plan_id);
+
+-- Default plan per recruiter/sub-agency.
+CREATE TABLE IF NOT EXISTS recruiter_reward_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    agency_name TEXT NOT NULL,
+    plan_id BIGINT NOT NULL REFERENCES reward_plans(id),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    -- make_date()/split_part() rather than to_date(): a GENERATED column's
+    -- expression must be IMMUTABLE and to_date() is only STABLE (locale-
+    -- dependent format parsing), which Postgres rejects here (42P17).
+    assignment_range daterange GENERATED ALWAYS AS (
+        daterange(
+            make_date(split_part(effective_from, '-', 1)::int, split_part(effective_from, '-', 2)::int, 1),
+            CASE WHEN effective_to IS NULL THEN NULL
+                 ELSE (make_date(split_part(effective_to, '-', 1)::int, split_part(effective_to, '-', 2)::int, 1)
+                       + INTERVAL '1 month')::date END,
+            '[)'
+        )
+    ) STORED,
+    assigned_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT rra_from_format CHECK (effective_from ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT rra_to_format CHECK (effective_to IS NULL OR effective_to ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    EXCLUDE USING gist (business_id WITH =, agency_name WITH =, assignment_range WITH &&)
+);
+CREATE INDEX IF NOT EXISTS idx_rra_lookup
+    ON recruiter_reward_assignments (business_id, agency_name, effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_rra_plan_id ON recruiter_reward_assignments (plan_id);
+
+-- Per-broadcaster override of a recruiter's default plan. Keyed on
+-- profile_url alone (not agency_name+profile_url): a broadcaster has one
+-- stable identity regardless of which recruiter currently owns them, so
+-- overlap must be prevented across every recruiter for that broadcaster.
+CREATE TABLE IF NOT EXISTS recruiter_reward_broadcaster_overrides (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    agency_name TEXT NOT NULL,
+    profile_url TEXT NOT NULL,
+    plan_id BIGINT NOT NULL REFERENCES reward_plans(id),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    -- make_date()/split_part() rather than to_date(): a GENERATED column's
+    -- expression must be IMMUTABLE and to_date() is only STABLE (locale-
+    -- dependent format parsing), which Postgres rejects here (42P17).
+    assignment_range daterange GENERATED ALWAYS AS (
+        daterange(
+            make_date(split_part(effective_from, '-', 1)::int, split_part(effective_from, '-', 2)::int, 1),
+            CASE WHEN effective_to IS NULL THEN NULL
+                 ELSE (make_date(split_part(effective_to, '-', 1)::int, split_part(effective_to, '-', 2)::int, 1)
+                       + INTERVAL '1 month')::date END,
+            '[)'
+        )
+    ) STORED,
+    assigned_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT rrbo_from_format CHECK (effective_from ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT rrbo_to_format CHECK (effective_to IS NULL OR effective_to ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    EXCLUDE USING gist (business_id WITH =, profile_url WITH =, assignment_range WITH &&)
+);
+CREATE INDEX IF NOT EXISTS idx_rrbo_lookup
+    ON recruiter_reward_broadcaster_overrides (business_id, profile_url, effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_rrbo_plan_id ON recruiter_reward_broadcaster_overrides (plan_id);
+
+-- Owner-confirmed events for milestones the monthly CSV can never prove
+-- (signup_completed / first_live_completed have no corresponding column in
+-- Tango's referral_statistics export - see utils.CSV_DERIVABLE_TRIGGER_TYPES /
+-- MANUAL_ONLY_TRIGGER_TYPES), plus manual_approval/custom milestones which
+-- are manual by definition.
+CREATE TABLE IF NOT EXISTS manual_milestone_events (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    recipient_type TEXT NOT NULL,
+    recipient_id TEXT NOT NULL,
+    related_profile_url TEXT,
+    trigger_type TEXT NOT NULL,
+    event_date DATE NOT NULL,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'Pending',
+    confirmed_by TEXT,
+    confirmed_at TIMESTAMP,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT mme_recipient_type_valid CHECK (recipient_type IN ('broadcaster', 'recruiter')),
+    CONSTRAINT mme_status_valid CHECK (status IN ('Pending', 'Approved', 'Rejected')),
+    CONSTRAINT mme_trigger_type_valid CHECK (trigger_type IN
+        ('signup_completed', 'first_live_completed', 'manual_approval', 'custom'))
+);
+CREATE INDEX IF NOT EXISTS idx_mme_lookup
+    ON manual_milestone_events (business_id, recipient_type, recipient_id, status);
+
+-- The core calculated-reward entry. Approval/payment state lives as columns
+-- here (a 1:1 relationship with the row it describes, not 1:many) - the
+-- history of every transition goes through the existing security_audit /
+-- log_security_event() mechanism instead of a second bespoke event table.
+-- performance_snapshot/config_snapshot freeze exactly what was used to
+-- calculate this row, so editing the plan later (a new reward_plan_versions
+-- row) can never change what an already-approved/paid row means.
+CREATE TABLE IF NOT EXISTS reward_calculations (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    recipient_type TEXT NOT NULL,
+    recipient_id TEXT NOT NULL,
+    related_profile_url TEXT,
+    plan_id BIGINT NOT NULL REFERENCES reward_plans(id),
+    plan_version_id BIGINT NOT NULL REFERENCES reward_plan_versions(id),
+    milestone_id BIGINT REFERENCES reward_plan_milestones(id),
+    milestone_key UUID,
+    frequency TEXT,
+    period TEXT NOT NULL,
+    reward_method TEXT NOT NULL,
+    performance_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    config_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    calculated_amount NUMERIC NOT NULL,
+    adjusted_amount NUMERIC,
+    unit TEXT NOT NULL,
+    currency TEXT,
+    agency_earnings NUMERIC,
+    net_earnings NUMERIC,
+    trigger_event_id BIGINT REFERENCES manual_milestone_events(id),
+    status TEXT NOT NULL DEFAULT 'Not Eligible',
+    approved_by TEXT,
+    approved_at TIMESTAMP,
+    paid_by TEXT,
+    paid_at TIMESTAMP,
+    flagged_for_review BOOLEAN NOT NULL DEFAULT false,
+    flagged_reason TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT rc_recipient_type_valid CHECK (recipient_type IN ('broadcaster', 'recruiter')),
+    CONSTRAINT rc_unit_valid CHECK (unit IN ('cash', 'coins')),
+    CONSTRAINT rc_period_format CHECK (period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    CONSTRAINT rc_status_valid CHECK (status IN (
+        'Not Eligible', 'In Progress', 'Milestone Reached', 'Awaiting Approval',
+        'Approved', 'Paid', 'Rejected', 'Cancelled'
+    ))
+);
+
+-- Duplicate protection as real constraints, not UI checks. COALESCE(...,'')
+-- on related_profile_url is needed because Postgres unique indexes treat
+-- NULL as always-distinct - without it, two broadcaster-level rows (which
+-- always have related_profile_url NULL) would never collide.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_reward_calc_lifetime
+    ON reward_calculations (business_id, recipient_type, recipient_id,
+                            COALESCE(related_profile_url, ''), plan_id, milestone_key)
+    WHERE milestone_key IS NOT NULL AND frequency = 'lifetime_once'
+          AND status NOT IN ('Rejected', 'Cancelled');
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_reward_calc_period_milestone
+    ON reward_calculations (business_id, recipient_type, recipient_id,
+                            COALESCE(related_profile_url, ''), plan_id, milestone_key, period)
+    WHERE milestone_key IS NOT NULL AND frequency IN ('monthly_once', 'period_once')
+          AND status NOT IN ('Rejected', 'Cancelled');
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_reward_calc_manual_event
+    ON reward_calculations (business_id, trigger_event_id)
+    WHERE trigger_event_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_reward_calc_percentage
+    ON reward_calculations (business_id, recipient_type, recipient_id, plan_id, period)
+    WHERE milestone_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_reward_calc_lookup
+    ON reward_calculations (business_id, recipient_type, recipient_id, period);
+CREATE INDEX IF NOT EXISTS idx_reward_calc_status
+    ON reward_calculations (business_id, status, unit);
+CREATE INDEX IF NOT EXISTS idx_reward_calc_milestone_id ON reward_calculations (milestone_id);
+CREATE INDEX IF NOT EXISTS idx_reward_calc_plan_id ON reward_calculations (plan_id);
+CREATE INDEX IF NOT EXISTS idx_reward_calc_plan_version_id ON reward_calculations (plan_version_id);
+CREATE INDEX IF NOT EXISTS idx_reward_calc_trigger_event_id ON reward_calculations (trigger_event_id);
+
+-- DB-level (not just UI-level) enforcement of "no paying before approval" /
+-- "no double-marking paid": Paid/Cancelled become terminal, and Paid can
+-- only be reached from Approved. A CHECK constraint can't see OLD, so this
+-- needs a trigger.
+-- SET search_path = '' pins the function against search_path hijacking
+-- (Security Advisor's function_search_path_mutable lint) - safe here since
+-- the body only touches NEW/OLD fields, never an unqualified table name.
+CREATE OR REPLACE FUNCTION reward_calculations_enforce_status_transition()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    IF NEW.status = OLD.status THEN RETURN NEW; END IF;
+    IF OLD.status = 'Paid' OR OLD.status = 'Cancelled' THEN
+        RAISE EXCEPTION 'reward_calculations: % is a terminal status, cannot change to %', OLD.status, NEW.status;
+    END IF;
+    IF NEW.status = 'Paid' AND OLD.status <> 'Approved' THEN
+        RAISE EXCEPTION 'reward_calculations: cannot mark Paid without Approved first (was %)', OLD.status;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_reward_calc_status_guard ON reward_calculations;
+CREATE TRIGGER trg_reward_calc_status_guard
+    BEFORE UPDATE ON reward_calculations
+    FOR EACH ROW EXECUTE FUNCTION reward_calculations_enforce_status_transition();
+
+-- Manual bonus/reduction/reversal/custom-milestone-approval/note. Append-
+-- only - applying an adjustment never overwrites calculated_amount, it adds
+-- a row here and updates reward_calculations.adjusted_amount, so the
+-- original calculated value is always still recoverable.
+CREATE TABLE IF NOT EXISTS reward_adjustments (
+    id BIGSERIAL PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    reward_calculation_id BIGINT NOT NULL REFERENCES reward_calculations(id),
+    adjustment_type TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    original_amount NUMERIC NOT NULL,
+    adjustment_amount NUMERIC NOT NULL,
+    final_amount NUMERIC NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT now(),
+    CONSTRAINT ra_type_valid CHECK (adjustment_type IN
+        ('bonus', 'reduction', 'reversal', 'approve_custom_milestone', 'note_only'))
+);
+CREATE INDEX IF NOT EXISTS idx_reward_adjustments_calc
+    ON reward_adjustments (business_id, reward_calculation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reward_adjustments_calc_id ON reward_adjustments (reward_calculation_id);
+
 -- The browser-facing Supabase API must never expose these tables. StreamOperiq
 -- accesses Postgres only from the server, so anon/authenticated need no grants.
 DO $$
@@ -534,7 +924,11 @@ BEGIN
         'businesses', 'users', 'memberships', 'subscriptions', 'roles', 'permissions',
         'role_permissions', 'plans', 'plan_features', 'entitlements', 'agencies', 'raw_uploads',
         'assignments', 'assignment_log', 'archived_periods', 'profiles', 'security_audit',
-        'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events'
+        'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events',
+        'reward_plans', 'reward_plan_versions', 'reward_plan_milestones',
+        'broadcaster_reward_assignments', 'recruiter_reward_assignments',
+        'recruiter_reward_broadcaster_overrides', 'manual_milestone_events',
+        'reward_calculations', 'reward_adjustments'
     ] LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
@@ -552,10 +946,18 @@ RUNTIME_TABLES = (
     "role_permissions", "plans", "plan_features", "entitlements", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status", "billing_events",
+    "reward_plans", "reward_plan_versions", "reward_plan_milestones",
+    "broadcaster_reward_assignments", "recruiter_reward_assignments",
+    "recruiter_reward_broadcaster_overrides", "manual_milestone_events",
+    "reward_calculations", "reward_adjustments",
 )
 
 RUNTIME_SEQUENCES = (
     "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq", "billing_events_id_seq",
+    "reward_plans_id_seq", "reward_plan_versions_id_seq", "reward_plan_milestones_id_seq",
+    "broadcaster_reward_assignments_id_seq", "recruiter_reward_assignments_id_seq",
+    "recruiter_reward_broadcaster_overrides_id_seq", "manual_milestone_events_id_seq",
+    "reward_calculations_id_seq", "reward_adjustments_id_seq",
 )
 
 RUNTIME_TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
@@ -705,6 +1107,32 @@ def _execute(sql, params=None, business_id=None, admin_scope=False):
                 cur.execute(sql, params or ())
             finally:
                 _reset_tenant_scope(cur)
+        conn.commit()
+    finally:
+        p.putconn(conn)
+
+
+def _execute_checked(sql, params=None, business_id=None):
+    """Like _execute, but rolls back immediately on a DB-level error
+    (constraint violation, trigger RAISE) instead of letting the existing
+    _execute's `finally: _reset_tenant_scope(cur)` attempt a second command
+    on an already-aborted transaction - which would otherwise mask the
+    original, catchable exception (e.g. ExclusionViolation) behind a
+    generic 'current transaction is aborted' error. Use this whenever the
+    caller wants to catch a specific psycopg2 error and translate it into a
+    user-facing message (reward-plan assignment overlap, status-transition
+    guard, etc.)."""
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(sql, params or ())
+            except Exception:
+                conn.rollback()
+                raise
+            _reset_tenant_scope(cur)
         conn.commit()
     finally:
         p.putconn(conn)
@@ -1481,4 +1909,770 @@ def upsert_profile(username: str, display_name: str = None, avatar_base64: str =
         "ON CONFLICT (username) DO UPDATE SET display_name=EXCLUDED.display_name, "
         "avatar_base64=EXCLUDED.avatar_base64, updated_at=now()",
         (username, new_display_name, new_avatar),
+    )
+
+
+# ============================================================================
+# Reward Plan Management System
+#
+# Fully additive: broadcaster_payout_rules / broadcaster_payout_status /
+# agencies.commission_pct (above) are untouched and keep working exactly as
+# before for any agency that hasn't opted in here. This is a second,
+# parallel reward mechanism - an Owner opts a broadcaster/recruiter in by
+# explicitly creating and assigning a plan; it is not a migration of the
+# existing percentage payout/commission data.
+# ============================================================================
+
+_PLAN_RECIPIENT_TYPES = ("broadcaster", "recruiter")
+_PLAN_REWARD_METHODS = (
+    "percentage_cash", "fixed_cash", "fixed_coins", "diamond_milestone_cash",
+    "diamond_milestone_coins", "custom_milestone_cash", "custom_milestone_coins", "hybrid",
+)
+_PLAN_STATUSES = ("draft", "active", "archived")
+_TIER_MODES = ("highest_only", "cumulative", "incremental_difference")
+_FREQUENCIES = ("lifetime_once", "monthly_once", "period_once", "manual_repeatable")
+_REWARD_STATUSES = (
+    "Not Eligible", "In Progress", "Milestone Reached", "Awaiting Approval",
+    "Approved", "Paid", "Rejected", "Cancelled",
+)
+_ADJUSTMENT_TYPES = ("bonus", "reduction", "reversal", "approve_custom_milestone", "note_only")
+_MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _validate_month(value: str, field_name: str = "Effective month"):
+    if not _MONTH_RE.fullmatch(str(value or "")):
+        raise ValueError(f"{field_name} must use YYYY-MM format.")
+
+
+# ---------------- reward plans ----------------
+
+def get_reward_plans(business_id: str, recipient_type: str = None, status: str = None) -> pd.DataFrame:
+    sql = (
+        "SELECT id, name, description, recipient_type, reward_method, status, "
+        "plan_effective_from, plan_effective_to, created_by, created_at, updated_at, "
+        "archived_by, archived_at FROM reward_plans WHERE business_id=%s"
+    )
+    params = [business_id]
+    if recipient_type:
+        sql += " AND recipient_type=%s"
+        params.append(recipient_type)
+    if status:
+        sql += " AND status=%s"
+        params.append(status)
+    sql += " ORDER BY name"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def get_reward_plan(business_id: str, plan_id: int):
+    df = _query(
+        "SELECT id, name, description, recipient_type, reward_method, status, "
+        "plan_effective_from, plan_effective_to, created_by, created_at, updated_at "
+        "FROM reward_plans WHERE business_id=%s AND id=%s",
+        (business_id, plan_id), business_id=business_id,
+    )
+    return None if df.empty else df.iloc[0]
+
+
+def create_reward_plan(business_id: str, name: str, description: str, recipient_type: str,
+                        reward_method: str, created_by: str) -> int:
+    if recipient_type not in _PLAN_RECIPIENT_TYPES:
+        raise ValueError("Recipient type must be 'broadcaster' or 'recruiter'.")
+    if reward_method not in _PLAN_REWARD_METHODS:
+        raise ValueError("Invalid reward method.")
+    if not str(name or "").strip():
+        raise ValueError("Plan name is required.")
+    df = _query(
+        "INSERT INTO reward_plans (business_id, name, description, recipient_type, reward_method, "
+        "status, created_by) VALUES (%s,%s,%s,%s,%s,'draft',%s) RETURNING id",
+        (business_id, name.strip(), description, recipient_type, reward_method,
+         _normalize_username(created_by)),
+        business_id=business_id,
+    )
+    return int(df.iloc[0]["id"])
+
+
+def update_reward_plan_meta(business_id: str, plan_id: int, name: str, description: str):
+    if not str(name or "").strip():
+        raise ValueError("Plan name is required.")
+    _execute(
+        "UPDATE reward_plans SET name=%s, description=%s, updated_at=now() WHERE business_id=%s AND id=%s",
+        (name.strip(), description, business_id, plan_id), business_id=business_id,
+    )
+
+
+def set_reward_plan_status(business_id: str, plan_id: int, status: str, actor: str):
+    """Activate/archive/revert-to-draft a plan. Archiving does not delete or
+    hide the plan from historical statements - it only blocks new
+    assignment (enforced in assign_broadcaster_to_plan / the recruiter
+    equivalents below), same as the spec requires."""
+    if status not in _PLAN_STATUSES:
+        raise ValueError("Invalid plan status.")
+    if status == "archived":
+        _execute(
+            "UPDATE reward_plans SET status=%s, archived_by=%s, archived_at=now(), updated_at=now() "
+            "WHERE business_id=%s AND id=%s",
+            (status, _normalize_username(actor), business_id, plan_id), business_id=business_id,
+        )
+    else:
+        _execute(
+            "UPDATE reward_plans SET status=%s, updated_at=now() WHERE business_id=%s AND id=%s",
+            (status, business_id, plan_id), business_id=business_id,
+        )
+
+
+def get_plan_versions(business_id: str, plan_id: int) -> pd.DataFrame:
+    return _query(
+        "SELECT id, version_number, effective_from, effective_to, config, tier_calculation_mode, "
+        "frequency, created_by, created_at FROM reward_plan_versions "
+        "WHERE business_id=%s AND plan_id=%s ORDER BY version_number DESC",
+        (business_id, plan_id), business_id=business_id,
+    )
+
+
+def get_latest_plan_version(business_id: str, plan_id: int):
+    df = get_plan_versions(business_id, plan_id)
+    return None if df.empty else df.iloc[0]
+
+
+def get_effective_plan_version(business_id: str, plan_id: int, period: str):
+    """Latest version at or before `period` - the same DISTINCT ON pattern
+    already proven by get_effective_payout_rules()."""
+    df = _query(
+        "SELECT DISTINCT ON (plan_id) id, version_number, effective_from, effective_to, config, "
+        "tier_calculation_mode, frequency FROM reward_plan_versions "
+        "WHERE business_id=%s AND plan_id=%s AND effective_from<=%s "
+        "ORDER BY plan_id, effective_from DESC",
+        (business_id, plan_id, period), business_id=business_id,
+    )
+    return None if df.empty else df.iloc[0]
+
+
+def get_plan_milestones(business_id: str, plan_version_id: int) -> pd.DataFrame:
+    return _query(
+        "SELECT id, milestone_key, order_index, name, description, trigger_type, threshold, "
+        "reward_value, unit, requires_manual_approval, max_total_reward_per_broadcaster, frequency "
+        "FROM reward_plan_milestones WHERE business_id=%s AND plan_version_id=%s ORDER BY order_index",
+        (business_id, plan_version_id), business_id=business_id,
+    )
+
+
+def save_reward_plan_version(business_id: str, plan_id: int, effective_from: str, effective_to,
+                              config: dict, tier_calculation_mode, frequency, milestones: list,
+                              created_by: str) -> int:
+    """Insert a new, immutable plan version (editing a plan never mutates an
+    old version - see the reward_plan_versions comment in SCHEMA). Validates
+    the percentage-plan rate bound and the milestone unique/strictly-
+    increasing-threshold rule in Python, mirroring save_payout_rule's
+    existing style, since a cross-row ordering rule isn't expressible as a
+    plain CHECK constraint."""
+    plan = get_reward_plan(business_id, plan_id)
+    if plan is None:
+        raise ValueError("Reward plan not found.")
+    _validate_month(effective_from)
+    if effective_to:
+        _validate_month(effective_to, "End month")
+    if tier_calculation_mode and tier_calculation_mode not in _TIER_MODES:
+        raise ValueError("Invalid tier calculation mode.")
+    if frequency and frequency not in _FREQUENCIES:
+        raise ValueError("Invalid frequency.")
+
+    config = dict(config or {})
+    if plan["reward_method"] == "percentage_cash":
+        agency_pct = float(config.get("agency_pct", 0) or 0)
+        payout_pct = float(config.get("payout_pct", 0) or 0)
+        if not 0 <= agency_pct <= 100:
+            raise ValueError("Agency earning percentage must be between 0% and 100%.")
+        if not 0 <= payout_pct <= agency_pct:
+            raise ValueError("Payout percentage cannot exceed the agency earning percentage.")
+
+    clean_milestones = []
+    last_threshold = None
+    for index, milestone in enumerate(milestones or []):
+        threshold = milestone.get("threshold")
+        if threshold is not None:
+            threshold = float(threshold)
+            if threshold < 0:
+                raise ValueError("Milestone threshold cannot be negative.")
+            if last_threshold is not None and threshold <= last_threshold:
+                raise ValueError("Milestone thresholds must be unique and strictly increasing.")
+            last_threshold = threshold
+        reward_value = float(milestone.get("reward_value", 0) or 0)
+        if reward_value < 0:
+            raise ValueError("Milestone reward value cannot be negative.")
+        unit = milestone.get("unit")
+        if unit not in ("cash", "coins"):
+            raise ValueError("Milestone unit must be 'cash' or 'coins'.")
+        trigger_type = milestone.get("trigger_type") or "diamonds_redeemed_threshold"
+        clean_milestones.append({
+            "milestone_key": milestone.get("milestone_key"),
+            "order_index": index,
+            "name": milestone.get("name"),
+            "description": milestone.get("description"),
+            "trigger_type": trigger_type,
+            "threshold": threshold,
+            "reward_value": reward_value,
+            "unit": unit,
+            "requires_manual_approval": bool(milestone.get("requires_manual_approval", False)),
+            "max_total_reward_per_broadcaster": milestone.get("max_total_reward_per_broadcaster"),
+            "frequency": milestone.get("frequency") or frequency,
+        })
+
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(
+                    "SELECT COALESCE(MAX(version_number), 0) + 1 FROM reward_plan_versions "
+                    "WHERE business_id=%s AND plan_id=%s",
+                    (business_id, plan_id),
+                )
+                version_number = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO reward_plan_versions (plan_id, business_id, version_number, "
+                    "effective_from, effective_to, config, tier_calculation_mode, frequency, created_by) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    (plan_id, business_id, version_number, effective_from, effective_to,
+                     psycopg2.extras.Json(config), tier_calculation_mode, frequency,
+                     _normalize_username(created_by)),
+                )
+                version_id = cur.fetchone()[0]
+                for milestone in clean_milestones:
+                    key = milestone["milestone_key"]
+                    if key:
+                        cur.execute(
+                            "INSERT INTO reward_plan_milestones (plan_version_id, business_id, "
+                            "milestone_key, order_index, name, description, trigger_type, threshold, "
+                            "reward_value, unit, requires_manual_approval, "
+                            "max_total_reward_per_broadcaster, frequency) "
+                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (version_id, business_id, key, milestone["order_index"], milestone["name"],
+                             milestone["description"], milestone["trigger_type"], milestone["threshold"],
+                             milestone["reward_value"], milestone["unit"],
+                             milestone["requires_manual_approval"],
+                             milestone["max_total_reward_per_broadcaster"], milestone["frequency"]),
+                        )
+                    else:
+                        cur.execute(
+                            "INSERT INTO reward_plan_milestones (plan_version_id, business_id, "
+                            "order_index, name, description, trigger_type, threshold, reward_value, "
+                            "unit, requires_manual_approval, max_total_reward_per_broadcaster, frequency) "
+                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (version_id, business_id, milestone["order_index"], milestone["name"],
+                             milestone["description"], milestone["trigger_type"], milestone["threshold"],
+                             milestone["reward_value"], milestone["unit"],
+                             milestone["requires_manual_approval"],
+                             milestone["max_total_reward_per_broadcaster"], milestone["frequency"]),
+                        )
+                cur.execute(
+                    "UPDATE reward_plans SET updated_at=now() WHERE business_id=%s AND id=%s",
+                    (business_id, plan_id),
+                )
+            except Exception:
+                conn.rollback()
+                raise
+            _reset_tenant_scope(cur)
+        conn.commit()
+    finally:
+        p.putconn(conn)
+    return version_id
+
+
+def duplicate_reward_plan(business_id: str, plan_id: int, new_name: str, created_by: str) -> int:
+    """Copy a plan's identity + latest version + milestones into a brand
+    new draft plan. Milestones get fresh milestone_keys - a duplicated plan
+    is a new plan, so its lifetime-dedup identities must be new too, never
+    sharing dedup state with the plan it was copied from."""
+    plan = get_reward_plan(business_id, plan_id)
+    if plan is None:
+        raise ValueError("Reward plan not found.")
+    new_plan_id = create_reward_plan(
+        business_id, new_name, plan["description"], plan["recipient_type"],
+        plan["reward_method"], created_by,
+    )
+    latest_version = get_latest_plan_version(business_id, plan_id)
+    if latest_version is not None:
+        milestones_df = get_plan_milestones(business_id, int(latest_version["id"]))
+        milestones = [
+            {
+                "milestone_key": None,
+                "name": row["name"], "description": row["description"],
+                "trigger_type": row["trigger_type"], "threshold": row["threshold"],
+                "reward_value": row["reward_value"], "unit": row["unit"],
+                "requires_manual_approval": row["requires_manual_approval"],
+                "max_total_reward_per_broadcaster": row["max_total_reward_per_broadcaster"],
+                "frequency": row["frequency"],
+            }
+            for _, row in milestones_df.iterrows()
+        ] if not milestones_df.empty else []
+        save_reward_plan_version(
+            business_id, new_plan_id, latest_version["effective_from"], latest_version["effective_to"],
+            latest_version["config"], latest_version["tier_calculation_mode"],
+            latest_version["frequency"], milestones, created_by,
+        )
+    return new_plan_id
+
+
+# ---------------- broadcaster / recruiter plan assignment ----------------
+
+_ASSIGNMENT_TABLES = (
+    "broadcaster_reward_assignments", "recruiter_reward_assignments",
+    "recruiter_reward_broadcaster_overrides",
+)
+
+
+def assign_broadcaster_to_plan(business_id: str, profile_url: str, plan_id: int,
+                                effective_from: str, effective_to, assigned_by: str):
+    """A second assignment overlapping an existing one for the same
+    broadcaster raises psycopg2.errors.ExclusionViolation (the
+    broadcaster_reward_assignments EXCLUDE constraint) - translated here
+    into a plain ValueError the UI can show directly."""
+    plan = get_reward_plan(business_id, plan_id)
+    if plan is None:
+        raise ValueError("Reward plan not found.")
+    if plan["status"] != "active":
+        raise ValueError("Only an active plan can be newly assigned.")
+    _validate_month(effective_from)
+    if effective_to:
+        _validate_month(effective_to, "End month")
+    try:
+        _execute_checked(
+            "INSERT INTO broadcaster_reward_assignments "
+            "(business_id, profile_url, plan_id, effective_from, effective_to, assigned_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (business_id, profile_url, plan_id, effective_from, effective_to,
+             _normalize_username(assigned_by)),
+            business_id=business_id,
+        )
+    except psycopg2.errors.ExclusionViolation:
+        raise ValueError(
+            f"This broadcaster already has a reward plan assignment overlapping {effective_from}."
+        )
+
+
+def bulk_assign_broadcasters_to_plan(business_id: str, profile_urls: list, plan_id: int,
+                                      effective_from: str, effective_to, assigned_by: str) -> tuple:
+    """Assign a plan to many broadcasters at once. One overlap failure does
+    not abort the whole batch - returns (succeeded, failed) so the UI can
+    report exactly which profiles need a different effective month."""
+    succeeded, failed = [], []
+    for profile_url in profile_urls:
+        try:
+            assign_broadcaster_to_plan(business_id, profile_url, plan_id, effective_from,
+                                        effective_to, assigned_by)
+            succeeded.append(profile_url)
+        except ValueError as exc:
+            failed.append((profile_url, str(exc)))
+    return succeeded, failed
+
+
+def get_broadcaster_assignments(business_id: str, profile_url: str = None) -> pd.DataFrame:
+    sql = (
+        "SELECT a.id, a.profile_url, a.plan_id, p.name AS plan_name, p.reward_method, "
+        "a.effective_from, a.effective_to, a.assigned_by, a.created_at "
+        "FROM broadcaster_reward_assignments a JOIN reward_plans p ON p.id=a.plan_id "
+        "WHERE a.business_id=%s"
+    )
+    params = [business_id]
+    if profile_url:
+        sql += " AND a.profile_url=%s"
+        params.append(profile_url)
+    sql += " ORDER BY a.profile_url, a.effective_from DESC"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def get_effective_broadcaster_assignments(business_id: str, period: str) -> pd.DataFrame:
+    """The plan effective for every broadcaster at/before `period`."""
+    return _query(
+        "SELECT DISTINCT ON (a.profile_url) a.profile_url, a.plan_id, a.effective_from, "
+        "a.effective_to, p.name AS plan_name, p.reward_method, p.status AS plan_status "
+        "FROM broadcaster_reward_assignments a JOIN reward_plans p ON p.id=a.plan_id "
+        "WHERE a.business_id=%s AND a.effective_from<=%s "
+        "AND (a.effective_to IS NULL OR a.effective_to>=%s) "
+        "ORDER BY a.profile_url, a.effective_from DESC",
+        (business_id, period, period), business_id=business_id,
+    )
+
+
+def assign_recruiter_default_plan(business_id: str, agency_name: str, plan_id: int,
+                                   effective_from: str, effective_to, assigned_by: str):
+    plan = get_reward_plan(business_id, plan_id)
+    if plan is None:
+        raise ValueError("Reward plan not found.")
+    if plan["status"] != "active":
+        raise ValueError("Only an active plan can be newly assigned.")
+    _validate_month(effective_from)
+    if effective_to:
+        _validate_month(effective_to, "End month")
+    try:
+        _execute_checked(
+            "INSERT INTO recruiter_reward_assignments "
+            "(business_id, agency_name, plan_id, effective_from, effective_to, assigned_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (business_id, agency_name, plan_id, effective_from, effective_to,
+             _normalize_username(assigned_by)),
+            business_id=business_id,
+        )
+    except psycopg2.errors.ExclusionViolation:
+        raise ValueError(
+            f"This recruiter already has a default reward plan overlapping {effective_from}."
+        )
+
+
+def assign_recruiter_broadcaster_override(business_id: str, agency_name: str, profile_url: str,
+                                           plan_id: int, effective_from: str, effective_to,
+                                           assigned_by: str):
+    plan = get_reward_plan(business_id, plan_id)
+    if plan is None:
+        raise ValueError("Reward plan not found.")
+    if plan["status"] != "active":
+        raise ValueError("Only an active plan can be newly assigned.")
+    _validate_month(effective_from)
+    if effective_to:
+        _validate_month(effective_to, "End month")
+    try:
+        _execute_checked(
+            "INSERT INTO recruiter_reward_broadcaster_overrides "
+            "(business_id, agency_name, profile_url, plan_id, effective_from, effective_to, assigned_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (business_id, agency_name, profile_url, plan_id, effective_from, effective_to,
+             _normalize_username(assigned_by)),
+            business_id=business_id,
+        )
+    except psycopg2.errors.ExclusionViolation:
+        raise ValueError(
+            f"This broadcaster already has an override overlapping {effective_from}."
+        )
+
+
+def get_recruiter_assignments(business_id: str, agency_name: str = None) -> pd.DataFrame:
+    sql = (
+        "SELECT a.id, a.agency_name, a.plan_id, p.name AS plan_name, p.reward_method, "
+        "a.effective_from, a.effective_to, a.assigned_by, a.created_at "
+        "FROM recruiter_reward_assignments a JOIN reward_plans p ON p.id=a.plan_id "
+        "WHERE a.business_id=%s"
+    )
+    params = [business_id]
+    if agency_name:
+        sql += " AND a.agency_name=%s"
+        params.append(agency_name)
+    sql += " ORDER BY a.agency_name, a.effective_from DESC"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def get_effective_recruiter_assignments(business_id: str, period: str) -> pd.DataFrame:
+    return _query(
+        "SELECT DISTINCT ON (a.agency_name) a.agency_name, a.plan_id, a.effective_from, "
+        "a.effective_to, p.name AS plan_name, p.reward_method, p.status AS plan_status "
+        "FROM recruiter_reward_assignments a JOIN reward_plans p ON p.id=a.plan_id "
+        "WHERE a.business_id=%s AND a.effective_from<=%s "
+        "AND (a.effective_to IS NULL OR a.effective_to>=%s) "
+        "ORDER BY a.agency_name, a.effective_from DESC",
+        (business_id, period, period), business_id=business_id,
+    )
+
+
+def get_recruiter_broadcaster_overrides(business_id: str, agency_name: str = None) -> pd.DataFrame:
+    sql = (
+        "SELECT o.id, o.agency_name, o.profile_url, o.plan_id, p.name AS plan_name, "
+        "p.reward_method, o.effective_from, o.effective_to, o.assigned_by, o.created_at "
+        "FROM recruiter_reward_broadcaster_overrides o JOIN reward_plans p ON p.id=o.plan_id "
+        "WHERE o.business_id=%s"
+    )
+    params = [business_id]
+    if agency_name:
+        sql += " AND o.agency_name=%s"
+        params.append(agency_name)
+    sql += " ORDER BY o.profile_url, o.effective_from DESC"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def get_effective_recruiter_plan(business_id: str, agency_name: str, profile_url: str, period: str):
+    """Resolve the plan governing one recruited broadcaster: a
+    broadcaster-level override if one is effective, else the recruiter's
+    default plan for that period."""
+    override_df = _query(
+        "SELECT DISTINCT ON (o.profile_url) o.plan_id, p.name AS plan_name, p.reward_method "
+        "FROM recruiter_reward_broadcaster_overrides o JOIN reward_plans p ON p.id=o.plan_id "
+        "WHERE o.business_id=%s AND o.agency_name=%s AND o.profile_url=%s AND o.effective_from<=%s "
+        "AND (o.effective_to IS NULL OR o.effective_to>=%s) "
+        "ORDER BY o.profile_url, o.effective_from DESC",
+        (business_id, agency_name, profile_url, period, period), business_id=business_id,
+    )
+    if not override_df.empty:
+        row = override_df.iloc[0]
+        return {"plan_id": int(row["plan_id"]), "plan_name": row["plan_name"],
+                "reward_method": row["reward_method"], "source": "override"}
+    default_df = get_effective_recruiter_assignments(business_id, period)
+    if not default_df.empty:
+        match = default_df[default_df["agency_name"] == agency_name]
+        if not match.empty:
+            row = match.iloc[0]
+            return {"plan_id": int(row["plan_id"]), "plan_name": row["plan_name"],
+                    "reward_method": row["reward_method"], "source": "default"}
+    return None
+
+
+def remove_future_assignment(table: str, business_id: str, assignment_id: int, current_period: str):
+    """Delete a not-yet-started assignment row. Refuses to delete a
+    past/current assignment - those are only ever superseded by a new
+    later-dated row, never removed, so a plan change can never shift a
+    historical/paid calculation."""
+    if table not in _ASSIGNMENT_TABLES:
+        raise ValueError("Invalid assignment table.")
+    df = _query(
+        f"SELECT effective_from FROM {table} WHERE business_id=%s AND id=%s",
+        (business_id, assignment_id), business_id=business_id,
+    )
+    if df.empty:
+        raise ValueError("Assignment not found.")
+    if str(df.iloc[0]["effective_from"]) <= str(current_period):
+        raise ValueError("Only a future-dated assignment can be removed.")
+    _execute(
+        f"DELETE FROM {table} WHERE business_id=%s AND id=%s",
+        (business_id, assignment_id), business_id=business_id,
+    )
+
+
+# ---------------- manual milestone events ----------------
+
+_MANUAL_TRIGGER_TYPES = ("signup_completed", "first_live_completed", "manual_approval", "custom")
+
+
+def create_manual_milestone_event(business_id: str, recipient_type: str, recipient_id: str,
+                                   related_profile_url, trigger_type: str, event_date,
+                                   notes: str, created_by: str):
+    if recipient_type not in _PLAN_RECIPIENT_TYPES:
+        raise ValueError("Invalid recipient type.")
+    if trigger_type not in _MANUAL_TRIGGER_TYPES:
+        raise ValueError("Invalid manual trigger type.")
+    _execute(
+        "INSERT INTO manual_milestone_events (business_id, recipient_type, recipient_id, "
+        "related_profile_url, trigger_type, event_date, notes, created_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (business_id, recipient_type, recipient_id, related_profile_url, trigger_type,
+         event_date, notes, _normalize_username(created_by)),
+        business_id=business_id,
+    )
+
+
+def get_manual_milestone_events(business_id: str, status: str = None) -> pd.DataFrame:
+    sql = (
+        "SELECT id, recipient_type, recipient_id, related_profile_url, trigger_type, event_date, "
+        "notes, status, confirmed_by, confirmed_at, created_by, created_at "
+        "FROM manual_milestone_events WHERE business_id=%s"
+    )
+    params = [business_id]
+    if status:
+        sql += " AND status=%s"
+        params.append(status)
+    sql += " ORDER BY created_at DESC"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def confirm_manual_milestone_event(business_id: str, event_id: int, approve: bool, confirmed_by: str):
+    new_status = "Approved" if approve else "Rejected"
+    _execute(
+        "UPDATE manual_milestone_events SET status=%s, confirmed_by=%s, confirmed_at=now() "
+        "WHERE business_id=%s AND id=%s AND status='Pending'",
+        (new_status, _normalize_username(confirmed_by), business_id, event_id),
+        business_id=business_id,
+    )
+
+
+# ---------------- reward calculations ----------------
+
+def insert_reward_calculation(business_id: str, recipient_type: str, recipient_id: str,
+                               related_profile_url, plan_id: int, plan_version_id: int,
+                               milestone_id, milestone_key, frequency, period: str,
+                               reward_method: str, performance_snapshot: dict, config_snapshot: dict,
+                               calculated_amount: float, unit: str, currency, agency_earnings,
+                               net_earnings, trigger_event_id, status: str = "Awaiting Approval"):
+    """Insert one calculated reward row. Returns the new id, or None if a
+    duplicate-protection partial unique index (lifetime/monthly/period
+    milestone dedup, or one-reward-per-manual-event) silently absorbed a
+    re-run via a bare ON CONFLICT DO NOTHING - callers should treat None as
+    'already recorded', not an error."""
+    if status not in _REWARD_STATUSES:
+        raise ValueError("Invalid reward status.")
+    if unit not in ("cash", "coins"):
+        raise ValueError("Unit must be 'cash' or 'coins'.")
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(
+                    "INSERT INTO reward_calculations (business_id, recipient_type, recipient_id, "
+                    "related_profile_url, plan_id, plan_version_id, milestone_id, milestone_key, "
+                    "frequency, period, reward_method, performance_snapshot, config_snapshot, "
+                    "calculated_amount, unit, currency, agency_earnings, net_earnings, "
+                    "trigger_event_id, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT DO NOTHING RETURNING id",
+                    (business_id, recipient_type, recipient_id, related_profile_url, plan_id,
+                     plan_version_id, milestone_id, milestone_key, frequency, period, reward_method,
+                     psycopg2.extras.Json(performance_snapshot or {}),
+                     psycopg2.extras.Json(config_snapshot or {}),
+                     calculated_amount, unit, currency, agency_earnings, net_earnings,
+                     trigger_event_id, status),
+                )
+                row = cur.fetchone()
+            except Exception:
+                conn.rollback()
+                raise
+            _reset_tenant_scope(cur)
+        conn.commit()
+    finally:
+        p.putconn(conn)
+    return row[0] if row else None
+
+
+def get_reward_calculations(business_id: str, recipient_type: str = None, recipient_id: str = None,
+                             period: str = None, status: str = None, plan_id: int = None) -> pd.DataFrame:
+    sql = (
+        "SELECT rc.id, rc.recipient_type, rc.recipient_id, rc.related_profile_url, rc.plan_id, "
+        "p.name AS plan_name, p.reward_method, rc.milestone_id, rc.milestone_key, rc.frequency, "
+        "rc.period, rc.performance_snapshot, "
+        "rc.config_snapshot, rc.calculated_amount, rc.adjusted_amount, rc.unit, rc.currency, "
+        "rc.agency_earnings, rc.net_earnings, rc.status, rc.approved_by, rc.approved_at, "
+        "rc.paid_by, rc.paid_at, rc.flagged_for_review, rc.flagged_reason, rc.created_at "
+        "FROM reward_calculations rc JOIN reward_plans p ON p.id=rc.plan_id "
+        "WHERE rc.business_id=%s"
+    )
+    params = [business_id]
+    if recipient_type:
+        sql += " AND rc.recipient_type=%s"
+        params.append(recipient_type)
+    if recipient_id:
+        sql += " AND rc.recipient_id=%s"
+        params.append(recipient_id)
+    if period:
+        sql += " AND rc.period=%s"
+        params.append(period)
+    if status:
+        sql += " AND rc.status=%s"
+        params.append(status)
+    if plan_id:
+        sql += " AND rc.plan_id=%s"
+        params.append(plan_id)
+    sql += " ORDER BY rc.period DESC, rc.created_at DESC"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def update_reward_status(business_id: str, calc_id: int, new_status: str, actor: str):
+    """Move a reward through its approval lifecycle. The DB trigger
+    (reward_calculations_enforce_status_transition) is the real guarantee
+    against skipping approval or double-paying; a violation surfaces here
+    as psycopg2.errors.RaiseException, translated into a plain ValueError."""
+    if new_status not in _REWARD_STATUSES:
+        raise ValueError("Invalid reward status.")
+    extra_cols, extra_vals = "", []
+    if new_status == "Approved":
+        extra_cols, extra_vals = ", approved_by=%s, approved_at=now()", [_normalize_username(actor)]
+    elif new_status == "Paid":
+        extra_cols, extra_vals = ", paid_by=%s, paid_at=now()", [_normalize_username(actor)]
+    sql = f"UPDATE reward_calculations SET status=%s, updated_at=now(){extra_cols} WHERE business_id=%s AND id=%s"
+    params = tuple([new_status] + extra_vals + [business_id, calc_id])
+    try:
+        _execute_checked(sql, params, business_id=business_id)
+    except psycopg2.errors.RaiseException as exc:
+        raise ValueError(str(exc).split("\n")[0].strip()) from exc
+
+
+def flag_rewards_for_review(business_id: str, period: str, recipient_ids: list, reason: str):
+    """CSV-replace-after-approval protection (req #15): mark already-
+    Approved/Paid rewards for a changed profile as needing review, never
+    silently recalculate them."""
+    clean_ids = sorted({str(v).strip() for v in recipient_ids if str(v).strip()})
+    if not clean_ids:
+        return
+    _execute(
+        "UPDATE reward_calculations SET flagged_for_review=true, flagged_reason=%s, updated_at=now() "
+        "WHERE business_id=%s AND period=%s AND recipient_id = ANY(%s) AND status IN ('Approved', 'Paid')",
+        (reason, business_id, period, clean_ids), business_id=business_id,
+    )
+
+
+def apply_reward_adjustment(business_id: str, calc_id: int, adjustment_type: str, reason: str,
+                             adjustment_amount: float, created_by: str) -> float:
+    """Append a reward_adjustments row and update reward_calculations.adjusted_amount
+    - calculated_amount (the original) is never overwritten."""
+    if adjustment_type not in _ADJUSTMENT_TYPES:
+        raise ValueError("Invalid adjustment type.")
+    if not str(reason or "").strip():
+        raise ValueError("An adjustment reason is required.")
+    p = _pool()
+    conn = p.getconn()
+    try:
+        with conn.cursor() as cur:
+            _set_tenant_scope(cur, business_id)
+            try:
+                cur.execute(
+                    "SELECT calculated_amount, adjusted_amount FROM reward_calculations "
+                    "WHERE business_id=%s AND id=%s FOR UPDATE",
+                    (business_id, calc_id),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError("Reward calculation not found.")
+                calculated_amount, adjusted_amount = row
+                original_amount = float(adjusted_amount if adjusted_amount is not None else calculated_amount)
+                delta = float(adjustment_amount or 0)
+                if adjustment_type == "reduction":
+                    final_amount, delta = original_amount - abs(delta), -abs(delta)
+                elif adjustment_type == "bonus":
+                    final_amount, delta = original_amount + abs(delta), abs(delta)
+                elif adjustment_type == "reversal":
+                    final_amount, delta = 0.0, -original_amount
+                else:
+                    final_amount = original_amount + delta
+                cur.execute(
+                    "INSERT INTO reward_adjustments (business_id, reward_calculation_id, "
+                    "adjustment_type, reason, original_amount, adjustment_amount, final_amount, "
+                    "created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (business_id, calc_id, adjustment_type, reason.strip(), original_amount,
+                     delta, final_amount, _normalize_username(created_by)),
+                )
+                cur.execute(
+                    "UPDATE reward_calculations SET adjusted_amount=%s, updated_at=now() "
+                    "WHERE business_id=%s AND id=%s",
+                    (final_amount, business_id, calc_id),
+                )
+            except Exception:
+                conn.rollback()
+                raise
+            _reset_tenant_scope(cur)
+        conn.commit()
+    finally:
+        p.putconn(conn)
+    return final_amount
+
+
+def get_reward_adjustments(business_id: str, calc_id: int = None) -> pd.DataFrame:
+    sql = (
+        "SELECT id, reward_calculation_id, adjustment_type, reason, original_amount, "
+        "adjustment_amount, final_amount, created_by, created_at "
+        "FROM reward_adjustments WHERE business_id=%s"
+    )
+    params = [business_id]
+    if calc_id:
+        sql += " AND reward_calculation_id=%s"
+        params.append(calc_id)
+    sql += " ORDER BY created_at DESC"
+    return _query(sql, tuple(params), business_id=business_id)
+
+
+def get_reward_plan_adoption_counts() -> pd.DataFrame:
+    """Cross-tenant plan-adoption counts for the Platform Admin dashboard.
+    Structurally cannot leak a reward amount: this SELECT list has no
+    calculated_amount/agency_earnings/reward_value column at all - a
+    Platform Admin confidentiality guarantee by construction, not a UI
+    filter on a fuller result."""
+    return _query(
+        "SELECT p.business_id, p.recipient_type, p.reward_method, p.status, COUNT(*) AS plan_count "
+        "FROM reward_plans p GROUP BY p.business_id, p.recipient_type, p.reward_method, p.status",
+        admin_scope=True,
     )

@@ -1098,6 +1098,7 @@ allowed_pages_by_role = {
         "Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "Assign",
         "SubAgencies", "CreateAgency", "UploadMonthly", "UploadDaily",
         "UserAccess", "DataManagement", "MyProfile", "Payouts", "PosterStudio",
+        "RewardOverview", "RewardPlans", "RecruiterRewards",
     },
     # Everything Owner has except SubAgencies (has a live commission-rate edit
     # control Manager's permission set excludes — kept Owner-only rather than
@@ -1116,7 +1117,8 @@ allowed_pages_by_role = {
     # data - minus AuditLog (not part of Trial Viewer's scope) and with every
     # export gated off separately via can_export, not by page access.
     "trial_viewer": {"Admin", "Statistics", "Broadcasters", "BroadcasterDetail", "MyProfile"},
-    "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile"},
+    "sub_agency": {"Admin", "Broadcasters", "BroadcasterDetail", "UploadMonthly", "MyProfile",
+                   "RecruiterRewards"},
     # Own performance only (Section 03) - no roster, no dashboard, nothing
     # else. BroadcasterDetail is locked to their own profile_url (see that
     # page's own handling below), not a page they navigate to freely.
@@ -1234,7 +1236,10 @@ with st.sidebar:
         with st.container(border=True):
             st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
             st.markdown('<div class="sidebar-group-head"><span>Rewards</span></div>', unsafe_allow_html=True)
+            nav_button("Reward Overview", "RewardOverview", ":material/summarize:")
             nav_button("Broadcaster Rewards", "Payouts", ":material/redeem:")
+            nav_button("Recruiter Rewards", "RecruiterRewards", ":material/military_tech:")
+            nav_button("Reward Plans", "RewardPlans", ":material/rule_folder:")
 
         with st.container(border=True):
             st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
@@ -1293,6 +1298,11 @@ with st.sidebar:
 
         nav_button("Overview", "Admin", ":material/dashboard:")
         nav_button("My Broadcasters", "Broadcasters", ":material/groups:")
+
+        with st.container(border=True):
+            st.markdown('<div class="sidebar-group-marker"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-group-head"><span>Rewards</span></div>', unsafe_allow_html=True)
+            nav_button("My Rewards", "RecruiterRewards", ":material/military_tech:")
 
         current_month_key = dt.date.today().strftime("%Y-%m")
         monthly_uploads = store.list_periods("monthly", business_id)
@@ -1451,6 +1461,87 @@ def load_payout_statuses(biz_id, period):
     return store.get_payout_statuses(biz_id, period)
 
 
+# ---------------- Reward Plan Management System loaders ----------------
+# Fully additive - none of these touch broadcaster_payout_rules/status or
+# agencies.commission_pct above. See store.py's "Reward Plan Management
+# System" section for the schema and CRUD this UI calls into.
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_reward_plans(biz_id, recipient_type=None, status=None):
+    return store.get_reward_plans(biz_id, recipient_type, status)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_plan_versions(biz_id, plan_id):
+    return store.get_plan_versions(biz_id, plan_id)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_plan_milestones(biz_id, plan_version_id):
+    return store.get_plan_milestones(biz_id, plan_version_id)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_broadcaster_assignments(biz_id, profile_url=None):
+    return store.get_broadcaster_assignments(biz_id, profile_url)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_effective_broadcaster_assignments(biz_id, period):
+    return store.get_effective_broadcaster_assignments(biz_id, period)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_recruiter_assignments(biz_id, agency_name=None):
+    return store.get_recruiter_assignments(biz_id, agency_name)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_effective_recruiter_assignments(biz_id, period):
+    return store.get_effective_recruiter_assignments(biz_id, period)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_recruiter_overrides(biz_id, agency_name=None):
+    return store.get_recruiter_broadcaster_overrides(biz_id, agency_name)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_manual_milestone_events(biz_id, status=None):
+    return store.get_manual_milestone_events(biz_id, status)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_reward_calculations(biz_id, recipient_type=None, period=None, status=None, plan_id=None):
+    return store.get_reward_calculations(biz_id, recipient_type=recipient_type, period=period,
+                                          status=status, plan_id=plan_id)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_reward_adjustments(biz_id, calc_id=None):
+    return store.get_reward_adjustments(biz_id, calc_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_reward_plan_adoption_counts():
+    return store.get_reward_plan_adoption_counts()
+
+
+def refresh_reward_plan_caches():
+    load_reward_plans.clear()
+    load_plan_versions.clear()
+    load_plan_milestones.clear()
+    load_broadcaster_assignments.clear()
+    load_effective_broadcaster_assignments.clear()
+    load_recruiter_assignments.clear()
+    load_effective_recruiter_assignments.clear()
+    load_recruiter_overrides.clear()
+    load_manual_milestone_events.clear()
+    load_reward_calculations.clear()
+    load_reward_adjustments.clear()
+    load_reward_plan_adoption_counts.clear()
+
+
 def refresh_caches():
     build_credentials.clear()
     load_all_raw.clear()
@@ -1468,6 +1559,7 @@ def refresh_caches():
     load_payout_statuses.clear()
     load_subscription.clear()
     load_billing_events.clear()
+    refresh_reward_plan_caches()
 
 
 def refresh_profile_cache():
@@ -1503,6 +1595,230 @@ def previous_period_of(period, period_type):
     idx = periods.index(period)
     remaining = periods[idx + 1:]
     return remaining[0] if remaining else None
+
+
+# ---------------- Reward Plan Management System: calculation engine ----------------
+# Fully additive - reads broadcaster/recruiter roster data the same way the
+# existing Payouts/SubAgencies pages already do, but writes only to the new
+# reward_calculations table via store's CRUD layer. Never touches
+# broadcaster_payout_rules/status or agencies.commission_pct.
+
+def _already_awarded_milestone_keys(biz_id, recipient_type, recipient_id, plan_id, frequency, period,
+                                     related_profile_url=None):
+    """milestone_keys already recorded (not Rejected/Cancelled) for this
+    recipient+plan - scoped the way `frequency` requires: lifetime looks
+    across every period ever calculated, monthly/period looks at this
+    period only. This is the engine-side defense-in-depth check layered on
+    top of reward_calculations' DB partial unique indexes (store.SCHEMA)."""
+    calcs = load_reward_calculations(biz_id, recipient_type=recipient_type, plan_id=plan_id)
+    if calcs.empty:
+        return set()
+    calcs = calcs[calcs["recipient_id"] == recipient_id]
+    if related_profile_url is not None:
+        calcs = calcs[calcs["related_profile_url"] == related_profile_url]
+    calcs = calcs[~calcs["status"].isin(["Rejected", "Cancelled"])]
+    if frequency in ("monthly_once", "period_once"):
+        calcs = calcs[calcs["period"] == period]
+    return set(calcs["milestone_key"].dropna().tolist())
+
+
+def _plan_config_for_period(biz_id, plan_id, period):
+    """Resolve (plan row, effective version row, milestone list) for a plan
+    at a given reporting period, or None if the plan has no version
+    effective yet."""
+    plan = store.get_reward_plan(biz_id, plan_id)
+    if plan is None or plan["status"] == "draft":
+        return None
+    version = store.get_effective_plan_version(biz_id, plan_id, period)
+    if version is None:
+        return None
+    milestones_df = load_plan_milestones(biz_id, int(version["id"]))
+    milestones = milestones_df.to_dict("records") if not milestones_df.empty else []
+    return plan, version, milestones
+
+
+def recalculate_broadcaster_rewards_for_period(biz_id, period, actor_username):
+    """Evaluate every broadcaster's effective reward-plan assignment for one
+    reporting period and insert any newly-earned reward_calculations rows.
+    Never marks anything Approved/Paid - every row lands at 'Awaiting
+    Approval' (or 'Not Eligible' when nothing is earned yet), per the
+    approval-before-payment workflow. Safe to call repeatedly - duplicate
+    inserts are absorbed by the DB's partial unique indexes and the
+    already-awarded check above."""
+    assignments = store.get_effective_broadcaster_assignments(biz_id, period)
+    if assignments.empty:
+        return 0
+    roster = load_all_raw(biz_id)
+    roster = roster[(roster["period"] == period) & (roster["period_type"] == "monthly")]
+    performance_by_profile = {
+        row["profile_url"]: row for _, row in roster.iterrows()
+    } if not roster.empty else {}
+
+    inserted = 0
+    for _, assignment in assignments.iterrows():
+        profile_url = assignment["profile_url"]
+        plan_id = int(assignment["plan_id"])
+        resolved = _plan_config_for_period(biz_id, plan_id, period)
+        if resolved is None:
+            continue
+        plan, version, milestones = resolved
+        performance = performance_by_profile.get(profile_url)
+        diamonds_redeemed = float(performance["diamonds_redeemed"]) if performance is not None else 0.0
+        config = dict(version["config"] or {})
+
+        if plan["reward_method"] == "percentage_cash":
+            result = utils.calculate_percentage_reward(
+                diamonds_redeemed, config.get("agency_pct", 0), config.get("payout_pct", 0),
+                config.get("min_diamonds", 0), config.get("max_monthly_payout"),
+            )
+            if not result["eligible"] or result["broadcaster_reward"] <= 0:
+                continue
+            new_id = store.insert_reward_calculation(
+                biz_id, "broadcaster", profile_url, None, plan_id, int(version["id"]),
+                None, None, version["frequency"], period, plan["reward_method"],
+                {"diamonds_redeemed": diamonds_redeemed}, config,
+                result["broadcaster_reward"], "cash", config.get("currency", "USD"),
+                result["agency_earnings"], result["net_earnings"], None, "Awaiting Approval",
+            )
+        elif plan["reward_method"] in ("fixed_cash", "fixed_coins"):
+            unit = "cash" if plan["reward_method"] == "fixed_cash" else "coins"
+            result = utils.calculate_fixed_reward(config.get("fixed_amount", 0), unit)
+            if result["amount"] <= 0:
+                continue
+            new_id = store.insert_reward_calculation(
+                biz_id, "broadcaster", profile_url, None, plan_id, int(version["id"]),
+                None, None, version["frequency"], period, plan["reward_method"],
+                {"diamonds_redeemed": diamonds_redeemed}, config,
+                result["amount"], unit, config.get("currency") if unit == "cash" else None,
+                None, None, None, "Awaiting Approval",
+            )
+        else:  # diamond_milestone_*, custom_milestone_*, hybrid
+            already = _already_awarded_milestone_keys(
+                biz_id, "broadcaster", profile_url, plan_id, version["frequency"], period,
+            )
+            basis = "diamonds_earned" if config.get("milestone_basis") == "diamonds_earned" else "diamonds_redeemed"
+            performance_value = float(performance[basis]) if performance is not None else 0.0
+            result = utils.calculate_milestone_reward(
+                performance_value, milestones, version["tier_calculation_mode"],
+                version["frequency"], already,
+            )
+            for awarded in result["awarded"]:
+                new_id = store.insert_reward_calculation(
+                    biz_id, "broadcaster", profile_url, None, plan_id, int(version["id"]),
+                    next((m["id"] for m in milestones if m["milestone_key"] == awarded["milestone_key"]), None),
+                    awarded["milestone_key"], version["frequency"], period, plan["reward_method"],
+                    {basis: performance_value}, config,
+                    awarded["reward_value"], awarded["unit"], None, None, None, None,
+                    "Awaiting Approval",
+                )
+                if new_id:
+                    inserted += 1
+            continue
+        if new_id:
+            inserted += 1
+    if inserted:
+        load_reward_calculations.clear()
+    return inserted
+
+
+def recalculate_recruiter_rewards_for_period(biz_id, period, actor_username):
+    """Evaluate every recruiter's configured milestones against their
+    recruited broadcasters for one reporting period. Manual-only trigger
+    types (signup_completed/first_live_completed) only fire when a
+    confirmed manual_milestone_events row already exists for that
+    broadcaster - this function never creates one itself."""
+    assignments_df = load_assignments(biz_id)
+    if assignments_df.empty:
+        return 0
+    roster = load_all_raw(biz_id)
+    roster = roster[(roster["period"] == period) & (roster["period_type"] == "monthly")]
+    performance_by_profile = {row["profile_url"]: row for _, row in roster.iterrows()} if not roster.empty else {}
+    manual_events = load_manual_milestone_events(biz_id, status="Approved")
+
+    inserted = 0
+    for _, row in assignments_df.iterrows():
+        agency_name, profile_url = row["sub_agency"], row["profile_url"]
+        if agency_name == "Agency Direct":
+            continue
+        resolved_plan = store.get_effective_recruiter_plan(biz_id, agency_name, profile_url, period)
+        if resolved_plan is None:
+            continue
+        plan_id = resolved_plan["plan_id"]
+        resolved = _plan_config_for_period(biz_id, plan_id, period)
+        if resolved is None:
+            continue
+        plan, version, milestones = resolved
+        performance = performance_by_profile.get(profile_url)
+        performance_dict = {
+            "diamonds_earned": float(performance["diamonds_earned"]) if performance is not None else 0.0,
+            "diamonds_redeemed": float(performance["diamonds_redeemed"]) if performance is not None else 0.0,
+            "streaming_days": float(performance["streaming_days"]) if performance is not None else 0.0,
+            "streaming_hours": float(performance["streaming_hours"]) if performance is not None else 0.0,
+        }
+
+        if plan["reward_method"] == "percentage_cash":
+            config = dict(version["config"] or {})
+            result = utils.calculate_percentage_reward(
+                performance_dict["diamonds_redeemed"], config.get("agency_pct", 0),
+                config.get("payout_pct", 0), config.get("min_diamonds", 0),
+                config.get("max_monthly_payout"),
+            )
+            if not result["eligible"] or result["broadcaster_reward"] <= 0:
+                continue
+            new_id = store.insert_reward_calculation(
+                biz_id, "recruiter", agency_name, profile_url, plan_id, int(version["id"]),
+                None, None, version["frequency"], period, plan["reward_method"],
+                performance_dict, config, result["broadcaster_reward"], "cash",
+                config.get("currency", "USD"), result["agency_earnings"], result["net_earnings"],
+                None, "Awaiting Approval",
+            )
+            if new_id:
+                inserted += 1
+            continue
+
+        already = _already_awarded_milestone_keys(
+            biz_id, "recruiter", agency_name, plan_id, None, period, related_profile_url=profile_url,
+        )
+        already_paid_total = 0.0
+        prior_calcs = load_reward_calculations(biz_id, recipient_type="recruiter", plan_id=plan_id)
+        if not prior_calcs.empty:
+            mine = prior_calcs[
+                (prior_calcs["recipient_id"] == agency_name)
+                & (prior_calcs["related_profile_url"] == profile_url)
+                & (~prior_calcs["status"].isin(["Rejected", "Cancelled"]))
+            ]
+            already_paid_total = float(mine["calculated_amount"].sum()) if not mine.empty else 0.0
+
+        for milestone in milestones:
+            manual_event = None
+            if milestone["trigger_type"] in utils.MANUAL_ONLY_TRIGGER_TYPES and not manual_events.empty:
+                match = manual_events[
+                    (manual_events["recipient_type"] == "recruiter")
+                    & (manual_events["recipient_id"] == agency_name)
+                    & (manual_events["related_profile_url"] == profile_url)
+                    & (manual_events["trigger_type"] == milestone["trigger_type"])
+                ]
+                manual_event = match.iloc[0].to_dict() if not match.empty else None
+            result = utils.calculate_recruiter_milestone_reward(
+                performance_dict, milestone, manual_event,
+                already if milestone.get("frequency") not in (None, "monthly_once", "period_once") else set(),
+                already_paid_total,
+            )
+            if not result["eligible"] or result["reward_value"] <= 0:
+                continue
+            status = "Awaiting Approval" if not result["requires_manual_approval"] else "Awaiting Approval"
+            trigger_event_id = int(manual_event["id"]) if manual_event else None
+            new_id = store.insert_reward_calculation(
+                biz_id, "recruiter", agency_name, profile_url, plan_id, int(version["id"]),
+                milestone["id"], milestone["milestone_key"], milestone.get("frequency"), period,
+                plan["reward_method"], performance_dict, dict(version["config"] or {}),
+                result["reward_value"], result["unit"], None, None, None, trigger_event_id, status,
+            )
+            if new_id:
+                inserted += 1
+    if inserted:
+        load_reward_calculations.clear()
+    return inserted
 
 
 # ============================================================== BUSINESSES
@@ -1888,6 +2204,27 @@ if st.session_state.page == "Businesses":
                                     + (f" &nbsp;·&nbsp; ref: {html.escape(str(ev['reference_note']))}"
                                        if ev["reference_note"] else "")
                                 )
+
+    st.markdown("### Reward Plan Adoption")
+    st.caption(
+        "Plan usage counts across every agency - never reward amounts or recipient statements, "
+        "which stay confidential to each Agency Owner and are not queried here at all."
+    )
+    adoption_counts = load_reward_plan_adoption_counts()
+    if adoption_counts.empty:
+        st.info("No agency has created a reward plan yet.")
+    else:
+        adoption_view = adoption_counts.merge(
+            businesses[["business_id", "business_name"]], on="business_id", how="left",
+        )
+        st.dataframe(
+            adoption_view[["business_name", "recipient_type", "reward_method", "status", "plan_count"]],
+            hide_index=True, width="stretch",
+            column_config={
+                "business_name": "Agency", "recipient_type": "Recipient type", "reward_method": "Method",
+                "status": "Status", "plan_count": st.column_config.NumberColumn("Plans"),
+            },
+        )
 
 # ================================================================ MY PROFILE
 elif st.session_state.page == "MyProfile":
@@ -2678,6 +3015,133 @@ elif st.session_state.page == "AuditLog":
         st.dataframe(audit_df, hide_index=True, width="stretch")
 
 # ================================================================== PAYOUTS
+elif st.session_state.page == "RewardOverview":
+    if not is_owner:
+        st.error("Owner access only.")
+        st.stop()
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="overview-hero"><div><div class="overview-eyebrow">Reward plan system</div>
+    <h1>Reward Overview</h1><p>A consolidated view of every configurable reward plan calculation - separate
+    from the existing broadcaster percentage payout and recruiter commission systems, which are unaffected.</p>
+    </div><div class="overview-period-pill">Configurable reward plans</div></div>
+    """, unsafe_allow_html=True)
+
+    reward_overview_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
+    if not reward_overview_periods:
+        st.info("Upload a monthly report, then create and assign a reward plan under **Reward Plans** to begin.")
+        st.stop()
+    reward_overview_period = st.selectbox("Reporting month", reward_overview_periods, key="reward_overview_month")
+
+    all_calcs = load_reward_calculations(business_id)
+    if not all_calcs.empty:
+        all_calcs = all_calcs.copy()
+        all_calcs["effective_amount"] = all_calcs["adjusted_amount"].fillna(all_calcs["calculated_amount"])
+    period_calcs = (
+        all_calcs[all_calcs["period"] == reward_overview_period] if not all_calcs.empty else all_calcs
+    )
+
+    def _sum_unit(df, unit, statuses=None):
+        if df is None or df.empty:
+            return 0.0
+        subset = df[df["unit"] == unit]
+        if statuses:
+            subset = subset[subset["status"].isin(statuses)]
+        return round(float(subset["effective_amount"].sum()), 2)
+
+    due_statuses = ["Awaiting Approval", "Milestone Reached", "Approved"]
+    cash_due = _sum_unit(all_calcs, "cash", due_statuses)
+    coins_due = _sum_unit(all_calcs, "coins", due_statuses)
+    cash_approved = _sum_unit(all_calcs, "cash", ["Approved"])
+    coins_approved = _sum_unit(all_calcs, "coins", ["Approved"])
+    cash_paid = _sum_unit(all_calcs, "cash", ["Paid"])
+    coins_paid = _sum_unit(all_calcs, "coins", ["Paid"])
+    pending_count = int((all_calcs["status"] == "Awaiting Approval").sum()) if not all_calcs.empty else 0
+    milestones_this_month = int(
+        (period_calcs["milestone_id"].notna() & ~period_calcs["status"].isin(["Rejected", "Cancelled"])).sum()
+    ) if not period_calcs.empty else 0
+
+    roster = load_all_raw(business_id)
+    roster_period = (
+        roster[(roster["period"] == reward_overview_period) & (roster["period_type"] == "monthly")]
+        if not roster.empty else roster
+    )
+    all_profiles = set(roster_period["profile_url"]) if not roster_period.empty else set()
+    effective_broadcaster_plans = load_effective_broadcaster_assignments(business_id, reward_overview_period)
+    plan_assigned_profiles = (
+        set(effective_broadcaster_plans["profile_url"]) if not effective_broadcaster_plans.empty else set()
+    )
+    broadcasters_without_plan = len(all_profiles - plan_assigned_profiles)
+
+    all_agencies = set(load_agencies(business_id))
+    effective_recruiter_plans = load_effective_recruiter_assignments(business_id, reward_overview_period)
+    recruiter_assigned = (
+        set(effective_recruiter_plans["agency_name"]) if not effective_recruiter_plans.empty else set()
+    )
+    recruiters_without_plan = len(all_agencies - recruiter_assigned)
+
+    st.markdown("#### Cash rewards")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total cash due", f"${cash_due:,.2f}")
+    c2.metric("Approved cash", f"${cash_approved:,.2f}")
+    c3.metric("Paid cash", f"${cash_paid:,.2f}")
+
+    st.markdown("#### Coin rewards")
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Total coins due", f"{coins_due:,.0f}")
+    k2.metric("Approved coins", f"{coins_approved:,.0f}")
+    k3.metric("Paid coins", f"{coins_paid:,.0f}")
+    st.caption("Cash and coin rewards are never combined into one total.")
+
+    st.markdown("#### Plan coverage")
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Pending approvals", pending_count)
+    p2.metric("Milestones reached this month", milestones_this_month)
+    p3.metric("Broadcasters without a plan", broadcasters_without_plan)
+    p4.metric("Recruiters without a plan", recruiters_without_plan)
+
+    if not all_calcs.empty:
+        st.markdown("#### Rewards by plan")
+        st.dataframe(
+            all_calcs.groupby(["plan_name", "unit"], as_index=False)["effective_amount"].sum(),
+            hide_index=True, width="stretch",
+            column_config={"plan_name": "Plan", "unit": "Unit",
+                           "effective_amount": st.column_config.NumberColumn("Amount", format="%.2f")},
+        )
+        st.markdown("#### Rewards by recipient type")
+        st.dataframe(
+            all_calcs.groupby(["recipient_type", "unit"], as_index=False)["effective_amount"].sum(),
+            hide_index=True, width="stretch",
+            column_config={"recipient_type": "Recipient type", "unit": "Unit",
+                           "effective_amount": st.column_config.NumberColumn("Amount", format="%.2f")},
+        )
+        broadcaster_calcs = all_calcs[all_calcs["recipient_type"] == "broadcaster"].copy()
+        assignments_for_source = load_assignments(business_id)
+        if not broadcaster_calcs.empty and not assignments_for_source.empty:
+            source_map = dict(zip(assignments_for_source["profile_url"], assignments_for_source["sub_agency"]))
+            broadcaster_calcs["recruitment_source"] = broadcaster_calcs["recipient_id"].map(source_map).fillna("Agency Direct")
+            st.markdown("#### Rewards by recruitment source")
+            st.dataframe(
+                broadcaster_calcs.groupby(["recruitment_source", "unit"], as_index=False)["effective_amount"].sum(),
+                hide_index=True, width="stretch",
+                column_config={"recruitment_source": "Recruitment source", "unit": "Unit",
+                               "effective_amount": st.column_config.NumberColumn("Amount", format="%.2f")},
+            )
+        st.markdown("#### Agency earnings (percentage-method reward plans only)")
+        pct_calcs = all_calcs[all_calcs["agency_earnings"].notna()]
+        gross = float(pct_calcs["agency_earnings"].sum()) if not pct_calcs.empty else 0.0
+        net = float(pct_calcs["net_earnings"].sum()) if not pct_calcs.empty else 0.0
+        g1, g2, g3 = st.columns(3)
+        g1.metric("Agency gross earnings", f"${gross:,.2f}")
+        g2.metric("Reward cost (cash)", f"${(cash_paid + cash_approved):,.2f}")
+        g3.metric("Net agency earnings", f"${net:,.2f}")
+        st.caption(
+            "Agency earnings apply only to 'Percentage/Cash' reward plans - fixed and milestone "
+            "plans have no agency-earnings concept, matching the existing Payouts page's formula."
+        )
+    else:
+        st.info("No reward-plan rewards have been calculated yet. Create a plan and assign it under **Reward Plans**.")
+
 elif st.session_state.page == "Payouts":
     if not is_owner:
         st.error("Owner access only.")
@@ -2695,7 +3159,8 @@ elif st.session_state.page == "Payouts":
     </div><div class="overview-period-pill">Monthly reward control</div></div>
     """, unsafe_allow_html=True)
     dashboard_section_control(
-        "payout_dashboard", ["Monthly Summary", "Reward Rules", "Statements", "History"]
+        "payout_dashboard",
+        ["Monthly Summary", "Reward Rules", "Statements", "History", "Plan-Based Rewards"],
     )
 
     monthly_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
@@ -3041,6 +3506,947 @@ elif st.session_state.page == "Payouts":
             column_config={"Date": st.column_config.DatetimeColumn(format="D MMM YYYY, h:mm a")},
         )
     payout_history_panel.__exit__(None, None, None)
+
+    # ---- Plan-Based Rewards: the Reward Plan Management System's view of ----
+    # ---- calculated broadcaster rewards. Fully additive - reads/writes    ----
+    # ---- only reward_calculations/reward_adjustments, never the tables    ----
+    # ---- the panels above use.                                           ----
+    plan_rewards_panel = dashboard_panel("payout_dashboard", "Plan-Based Rewards")
+    plan_rewards_panel.__enter__()
+    st.markdown(
+        '<div class="payout-section-head"><h2>Configurable Reward Plan Calculations</h2>'
+        '<p>Rewards calculated from Reward Plans (percentage, fixed, or milestone-based) - a separate, '
+        'parallel system from the reward rules above. Approve, then mark paid; nothing here is ever '
+        'auto-approved or auto-paid.</p></div>', unsafe_allow_html=True,
+    )
+    plan_notice = st.session_state.pop("_plan_rewards_notice", None)
+    if plan_notice:
+        st.toast(plan_notice, icon="✅")
+
+    pr_calcs = load_reward_calculations(business_id, recipient_type="broadcaster")
+    if pr_calcs.empty:
+        st.info("No reward-plan calculations yet. Assign a plan to broadcasters under **Reward Plans**.")
+    else:
+        pr_calcs = pr_calcs.copy()
+        pr_calcs["effective_amount"] = pr_calcs["adjusted_amount"].fillna(pr_calcs["calculated_amount"])
+        assignments_lookup = load_assignments(business_id)
+        source_map = (
+            dict(zip(assignments_lookup["profile_url"], assignments_lookup["sub_agency"]))
+            if not assignments_lookup.empty else {}
+        )
+        pr_calcs["recruitment_source"] = pr_calcs["recipient_id"].map(source_map).fillna("Agency Direct")
+
+        pf1, pf2, pf3, pf4, pf5 = st.columns(5)
+        pr_period_choice = pf1.selectbox(
+            "Period", ["All periods"] + sorted(pr_calcs["period"].unique().tolist(), reverse=True), key="pr_period",
+        )
+        pr_plan_choice = pf2.selectbox(
+            "Plan", ["All plans"] + sorted(pr_calcs["plan_name"].unique().tolist()), key="pr_plan",
+        )
+        pr_unit_choice = pf3.selectbox("Reward type", ["All", "Cash", "Coins"], key="pr_unit")
+        pr_status_choice = pf4.selectbox(
+            "Status", ["All"] + list(utils.REWARD_STATUS_TRANSITIONS.keys()), key="pr_status",
+        )
+        pr_source_choice = pf5.selectbox(
+            "Recruitment source", ["All"] + sorted(pr_calcs["recruitment_source"].unique().tolist()), key="pr_source",
+        )
+        pr_search = st.text_input("Search broadcaster (Tango profile URL)", key="pr_search")
+
+        pr_view = pr_calcs.copy()
+        if pr_period_choice != "All periods":
+            pr_view = pr_view[pr_view["period"] == pr_period_choice]
+        if pr_plan_choice != "All plans":
+            pr_view = pr_view[pr_view["plan_name"] == pr_plan_choice]
+        if pr_unit_choice != "All":
+            pr_view = pr_view[pr_view["unit"] == pr_unit_choice.lower()]
+        if pr_status_choice != "All":
+            pr_view = pr_view[pr_view["status"] == pr_status_choice]
+        if pr_source_choice != "All":
+            pr_view = pr_view[pr_view["recruitment_source"] == pr_source_choice]
+        if pr_search.strip():
+            pr_view = pr_view[pr_view["recipient_id"].str.contains(pr_search.strip(), case=False, na=False)]
+
+        if pr_view["flagged_for_review"].any():
+            st.warning(
+                f"{int(pr_view['flagged_for_review'].sum())} reward(s) are flagged for review - "
+                "their reporting period was re-uploaded with different values since approval/payment."
+            )
+
+        display_cols = [
+            "period", "recipient_id", "plan_name", "reward_method", "recruitment_source",
+            "effective_amount", "unit", "status", "flagged_for_review",
+        ]
+        pr_view = pr_view.sort_values(["period", "recipient_id"], ascending=[False, True])
+        pr_view.insert(0, "selected", False)
+        edited_pr = st.data_editor(
+            pr_view[["selected"] + display_cols], hide_index=True, width="stretch",
+            disabled=display_cols, key=f"pr_editor_{pr_period_choice}_{pr_plan_choice}",
+            column_config={
+                "selected": st.column_config.CheckboxColumn("Select", width="small"),
+                "period": "Period", "recipient_id": st.column_config.LinkColumn("Broadcaster", display_text="Open profile"),
+                "plan_name": "Plan", "reward_method": "Method", "recruitment_source": "Recruitment source",
+                "effective_amount": st.column_config.NumberColumn("Amount", format="%.2f"),
+                "unit": "Unit", "status": "Status", "flagged_for_review": st.column_config.CheckboxColumn("Flagged"),
+            },
+        )
+        selected_ids = pr_view.loc[edited_pr.index[edited_pr["selected"]], "id"].tolist()
+        approvable_ids = pr_view[
+            pr_view["id"].isin(selected_ids) & pr_view["status"].isin(["Awaiting Approval", "Milestone Reached"])
+        ]["id"].tolist()
+        payable_ids = pr_view[pr_view["id"].isin(selected_ids) & (pr_view["status"] == "Approved")]["id"].tolist()
+
+        act1, act2, act3 = st.columns(3)
+        with act1:
+            bulk_approve_confirm = st.checkbox(
+                f"Confirm approval of {len(approvable_ids)} selected", key="pr_bulk_approve_confirm",
+                disabled=not approvable_ids,
+            )
+            if st.button("Bulk Approve", icon=":material/check_circle:", width="stretch",
+                         disabled=not (approvable_ids and bulk_approve_confirm), key="pr_bulk_approve"):
+                for calc_id in approvable_ids:
+                    store.update_reward_status(business_id, int(calc_id), "Approved", username)
+                store.log_security_event(
+                    "reward_approved", username, user_role, business_id,
+                    "reward_calculation", "bulk", f"count={len(approvable_ids)}",
+                )
+                refresh_reward_plan_caches()
+                st.session_state["_plan_rewards_notice"] = f"Approved {len(approvable_ids)} reward(s)."
+                st.rerun()
+        with act2:
+            bulk_pay_confirm = st.checkbox(
+                f"Confirm payment of {len(payable_ids)} selected", key="pr_bulk_pay_confirm",
+                disabled=not payable_ids,
+            )
+            if st.button("Bulk Mark Paid", icon=":material/task_alt:", width="stretch",
+                         disabled=not (payable_ids and bulk_pay_confirm), key="pr_bulk_pay"):
+                for calc_id in payable_ids:
+                    store.update_reward_status(business_id, int(calc_id), "Paid", username)
+                store.log_security_event(
+                    "reward_marked_paid", username, user_role, business_id,
+                    "reward_calculation", "bulk", f"count={len(payable_ids)}",
+                )
+                refresh_reward_plan_caches()
+                st.session_state["_plan_rewards_notice"] = f"Marked {len(payable_ids)} reward(s) paid."
+                st.rerun()
+        with act3:
+            if can_export:
+                cash_statement = pr_view[pr_view["unit"] == "cash"][display_cols]
+                coin_statement = pr_view[pr_view["unit"] == "coins"][display_cols]
+                st.download_button(
+                    "Download Cash Statement", utils.safe_csv_bytes(cash_statement),
+                    file_name="broadcaster_reward_cash_statement.csv", mime="text/csv",
+                    width="stretch", icon=":material/download:", key="pr_export_cash",
+                )
+                st.download_button(
+                    "Download Coin Statement", utils.safe_csv_bytes(coin_statement),
+                    file_name="broadcaster_reward_coin_statement.csv", mime="text/csv",
+                    width="stretch", icon=":material/download:", key="pr_export_coin",
+                )
+
+        st.markdown("##### Reject, reverse, or adjust a single reward")
+        if not pr_view.empty:
+            single_calc_id = st.selectbox(
+                "Reward", pr_view["id"].tolist(),
+                format_func=lambda cid: f"{pr_view[pr_view['id'] == cid].iloc[0]['recipient_id']} · "
+                                         f"{pr_view[pr_view['id'] == cid].iloc[0]['period']} · "
+                                         f"{pr_view[pr_view['id'] == cid].iloc[0]['status']}",
+                key="pr_single_select",
+            )
+            single_row = pr_view[pr_view["id"] == single_calc_id].iloc[0]
+            with st.container(border=True):
+                perf = single_row.get("performance_snapshot") or {}
+                cfg = single_row.get("config_snapshot") or {}
+                st.caption(
+                    f"Calculation explanation: method **{single_row['reward_method']}**, "
+                    f"performance used **{perf}**, config used **{cfg}**, "
+                    f"result **{single_row['effective_amount']:,.2f} {single_row['unit']}**."
+                )
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    if single_row["status"] == "Awaiting Approval" and st.button(
+                        "Reject", icon=":material/cancel:", key=f"pr_reject_{single_calc_id}",
+                    ):
+                        store.update_reward_status(business_id, int(single_calc_id), "Rejected", username)
+                        store.log_security_event("reward_rejected", username, user_role, business_id,
+                                                  "reward_calculation", str(single_calc_id))
+                        refresh_reward_plan_caches()
+                        st.rerun()
+                with sc2:
+                    reversal_confirm = st.checkbox("Confirm reversal", key=f"pr_reverse_confirm_{single_calc_id}")
+                    if single_row["status"] in ("Approved", "Paid") and st.button(
+                        "Reverse", icon=":material/undo:", key=f"pr_reverse_{single_calc_id}",
+                        disabled=not reversal_confirm,
+                    ):
+                        reason = f"Reversed by {username}"
+                        store.apply_reward_adjustment(business_id, int(single_calc_id), "reversal", reason, 0, username)
+                        store.update_reward_status(business_id, int(single_calc_id), "Cancelled", username)
+                        store.log_security_event("reward_reversed", username, user_role, business_id,
+                                                  "reward_calculation", str(single_calc_id))
+                        refresh_reward_plan_caches()
+                        st.rerun()
+
+                with st.popover("Add adjustment (bonus / reduction / note)"):
+                    adj_type = st.selectbox(
+                        "Adjustment type", ["bonus", "reduction", "approve_custom_milestone", "note_only"],
+                        format_func=lambda k: k.replace("_", " ").title(), key=f"pr_adj_type_{single_calc_id}",
+                    )
+                    adj_amount = st.number_input("Adjustment amount", value=0.0, key=f"pr_adj_amount_{single_calc_id}")
+                    adj_reason = st.text_area("Reason (required)", key=f"pr_adj_reason_{single_calc_id}")
+                    if st.button("Apply adjustment", type="primary", key=f"pr_adj_go_{single_calc_id}"):
+                        if not adj_reason.strip():
+                            st.error("A reason is required for every adjustment.")
+                        else:
+                            try:
+                                final_amount = store.apply_reward_adjustment(
+                                    business_id, int(single_calc_id), adj_type, adj_reason.strip(),
+                                    adj_amount, username,
+                                )
+                                store.log_security_event(
+                                    "reward_adjusted", username, user_role, business_id,
+                                    "reward_calculation", str(single_calc_id),
+                                    f"type={adj_type};final={final_amount}",
+                                )
+                                refresh_reward_plan_caches()
+                                st.toast("Adjustment applied. The original calculated amount is preserved.", icon="✅")
+                                st.rerun()
+                            except ValueError as error:
+                                st.error(str(error))
+
+                past_adjustments = load_reward_adjustments(business_id, int(single_calc_id))
+                if not past_adjustments.empty:
+                    st.dataframe(past_adjustments, hide_index=True, width="stretch")
+    plan_rewards_panel.__exit__(None, None, None)
+
+elif st.session_state.page == "RewardPlans":
+    if not is_owner:
+        st.error("Owner access only.")
+        st.stop()
+    reward_plan_notice = st.session_state.pop("_reward_plan_notice", None)
+    if reward_plan_notice:
+        st.toast(reward_plan_notice, icon="✅")
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="overview-hero"><div><div class="overview-eyebrow">Configurable rewards</div>
+    <h1>Reward Plans</h1><p>Create, configure, and assign broadcaster and recruiter reward plans -
+    percentage, fixed, or milestone-based.</p>
+    </div><div class="overview-period-pill">Plan library</div></div>
+    """, unsafe_allow_html=True)
+    dashboard_section_control(
+        "reward_plans_dashboard",
+        ["Plan Library", "Broadcaster Assignments", "Recruiter Assignments", "Manual Events & Approvals"],
+    )
+
+    REWARD_METHOD_LABELS = {
+        "percentage_cash": "Percentage / Cash", "fixed_cash": "Fixed Cash", "fixed_coins": "Fixed Coins",
+        "diamond_milestone_cash": "Diamond Milestone → Cash", "diamond_milestone_coins": "Diamond Milestone → Coins",
+        "custom_milestone_cash": "Custom Milestone → Cash", "custom_milestone_coins": "Custom Milestone → Coins",
+        "hybrid": "Hybrid Percentage + Milestone",
+    }
+    TRIGGER_TYPE_LABELS = {
+        "diamonds_redeemed_threshold": "Diamonds redeemed (threshold)",
+        "diamonds_earned_threshold": "Diamonds earned (threshold)",
+        "signup_completed": "Signup completed", "first_live_completed": "First live completed",
+        "streaming_days_target": "Streaming days target", "streaming_hours_target": "Streaming hours target",
+        "diamonds_earned_target": "Diamonds earned target", "diamonds_redeemed_target": "Diamonds redeemed target",
+        "manual_approval": "Manual approval", "custom": "Custom milestone",
+    }
+    TIER_MODE_LABELS = {"highest_only": "Highest milestone only", "cumulative": "Cumulative milestones",
+                         "incremental_difference": "Incremental difference"}
+    FREQUENCY_LABELS = {"lifetime_once": "Once per broadcaster lifetime", "monthly_once": "Once per reporting month",
+                         "period_once": "Once per reporting period", "manual_repeatable": "Manually repeatable"}
+
+    # ============================================================ Plan Library
+    plan_library_panel = dashboard_panel("reward_plans_dashboard", "Plan Library")
+    plan_library_panel.__enter__()
+    pl1, pl2 = st.columns(2)
+    filter_recipient = pl1.selectbox("Recipient type", ["All", "Broadcaster", "Recruiter"], key="rp_filter_recipient")
+    filter_status = pl2.selectbox("Status", ["All", "Draft", "Active", "Archived"], key="rp_filter_status")
+    plans_df = load_reward_plans(
+        business_id,
+        recipient_type=None if filter_recipient == "All" else ("broadcaster" if filter_recipient == "Broadcaster" else "recruiter"),
+        status=None if filter_status == "All" else filter_status.lower(),
+    )
+
+    with st.expander("Create a new reward plan", icon=":material/add_circle:"):
+        with st.form("create_reward_plan_form", clear_on_submit=True):
+            new_name = st.text_input("Plan name")
+            new_description = st.text_area("Description", height=80)
+            new_recipient = st.selectbox("Recipient type", ["Broadcaster", "Recruiter/Sub-Agency"])
+            new_method = st.selectbox(
+                "Reward method", list(REWARD_METHOD_LABELS.keys()), format_func=lambda k: REWARD_METHOD_LABELS[k],
+            )
+            if st.form_submit_button("Create plan", type="primary", icon=":material/add:"):
+                if not new_name.strip():
+                    st.error("Plan name is required.")
+                else:
+                    recipient_value = "broadcaster" if new_recipient == "Broadcaster" else "recruiter"
+                    new_plan_id = store.create_reward_plan(
+                        business_id, new_name.strip(), new_description, recipient_value, new_method, username,
+                    )
+                    store.log_security_event(
+                        "reward_plan_created", username, user_role, business_id,
+                        "reward_plan", str(new_plan_id), f"name={new_name.strip()};method={new_method}",
+                    )
+                    refresh_reward_plan_caches()
+                    st.session_state["_reward_plan_notice"] = f"Created plan '{new_name.strip()}'."
+                    st.session_state["rp_selected_plan"] = new_plan_id
+                    st.rerun()
+
+    if plans_df.empty:
+        st.info("No reward plans yet. Create one above.")
+    else:
+        plan_options = dict(zip(plans_df["id"], plans_df["name"] + " (" + plans_df["status"].str.title() + ")"))
+        default_plan_id = st.session_state.get("rp_selected_plan", plans_df.iloc[0]["id"])
+        if default_plan_id not in plan_options:
+            default_plan_id = plans_df.iloc[0]["id"]
+        plan_id_list = list(plan_options.keys())
+        selected_plan_id = st.selectbox(
+            "Select a plan to configure", plan_id_list, format_func=lambda k: plan_options[k],
+            index=plan_id_list.index(default_plan_id), key="rp_plan_selector",
+        )
+        st.session_state["rp_selected_plan"] = selected_plan_id
+        plan_row = store.get_reward_plan(business_id, int(selected_plan_id))
+
+        with st.container(border=True):
+            top1, top2 = st.columns([3, 1])
+            with top1:
+                st.markdown(f"### {plan_row['name']}")
+                st.caption(plan_row["description"] or "No description.")
+                st.markdown(
+                    f"**Recipient:** {plan_row['recipient_type'].title()} &nbsp;·&nbsp; "
+                    f"**Method:** {REWARD_METHOD_LABELS.get(plan_row['reward_method'], plan_row['reward_method'])} "
+                    f"&nbsp;·&nbsp; **Status:** {plan_row['status'].title()}"
+                )
+            with top2:
+                if plan_row["status"] == "draft":
+                    if st.button("Activate", type="primary", icon=":material/play_circle:",
+                                  key=f"activate_{selected_plan_id}"):
+                        store.set_reward_plan_status(business_id, int(selected_plan_id), "active", username)
+                        store.log_security_event("reward_plan_activated", username, user_role, business_id,
+                                                  "reward_plan", str(selected_plan_id))
+                        refresh_reward_plan_caches()
+                        st.rerun()
+                elif plan_row["status"] == "active":
+                    archive_confirm = st.checkbox("Confirm archive", key=f"archive_confirm_{selected_plan_id}")
+                    if st.button("Archive", icon=":material/archive:", key=f"archive_{selected_plan_id}",
+                                 disabled=not archive_confirm):
+                        store.set_reward_plan_status(business_id, int(selected_plan_id), "archived", username)
+                        store.log_security_event("reward_plan_archived", username, user_role, business_id,
+                                                  "reward_plan", str(selected_plan_id))
+                        refresh_reward_plan_caches()
+                        st.session_state["_reward_plan_notice"] = (
+                            "Plan archived. It stays visible in historical statements but can no longer be newly assigned."
+                        )
+                        st.rerun()
+                else:
+                    if st.button("Reactivate as Draft", icon=":material/restore:", key=f"reactivate_{selected_plan_id}"):
+                        store.set_reward_plan_status(business_id, int(selected_plan_id), "draft", username)
+                        refresh_reward_plan_caches()
+                        st.rerun()
+                with st.popover("Duplicate"):
+                    dup_name = st.text_input(
+                        "New plan name", value=f"{plan_row['name']} (Copy)", key=f"dup_name_{selected_plan_id}",
+                    )
+                    if st.button("Duplicate plan", type="primary", key=f"dup_go_{selected_plan_id}"):
+                        new_id = store.duplicate_reward_plan(business_id, int(selected_plan_id), dup_name.strip(), username)
+                        store.log_security_event("reward_plan_duplicated", username, user_role, business_id,
+                                                  "reward_plan", str(new_id), f"source={selected_plan_id}")
+                        refresh_reward_plan_caches()
+                        st.session_state["rp_selected_plan"] = new_id
+                        st.session_state["_reward_plan_notice"] = f"Duplicated as '{dup_name.strip()}'."
+                        st.rerun()
+
+            if plan_row["recipient_type"] == "broadcaster":
+                using = load_broadcaster_assignments(business_id)
+                using = using[using["plan_id"] == int(selected_plan_id)] if not using.empty else using
+                st.caption(f"Assigned to **{using['profile_url'].nunique() if not using.empty else 0}** broadcaster(s).")
+            else:
+                using_default = load_recruiter_assignments(business_id)
+                using_default = using_default[using_default["plan_id"] == int(selected_plan_id)] if not using_default.empty else using_default
+                using_override = load_recruiter_overrides(business_id)
+                using_override = using_override[using_override["plan_id"] == int(selected_plan_id)] if not using_override.empty else using_override
+                st.caption(
+                    f"Default plan for **{using_default['agency_name'].nunique() if not using_default.empty else 0}** "
+                    f"recruiter(s), override for **{using_override['profile_url'].nunique() if not using_override.empty else 0}** broadcaster(s)."
+                )
+
+        with st.container(border=True):
+            st.markdown("#### Configure")
+            latest_version = store.get_latest_plan_version(business_id, int(selected_plan_id))
+            existing_config = dict(latest_version["config"]) if latest_version is not None else {}
+            default_effective_from = dt.date.today().strftime("%Y-%m")
+            cfg1, cfg2 = st.columns(2)
+            effective_from_input = cfg1.text_input(
+                "Effective from (YYYY-MM)",
+                value=latest_version["effective_from"] if latest_version is not None else default_effective_from,
+                key=f"cfg_from_{selected_plan_id}",
+            )
+            effective_to_input = cfg2.text_input(
+                "Optional end month (YYYY-MM)",
+                value=(latest_version["effective_to"] or "") if latest_version is not None else "",
+                key=f"cfg_to_{selected_plan_id}",
+            )
+
+            milestones_state_key = f"rp_milestones_{selected_plan_id}"
+            if plan_row["reward_method"] == "percentage_cash":
+                pc1, pc2 = st.columns(2)
+                agency_pct = pc1.number_input(
+                    "Agency earning percentage", min_value=0.0, max_value=100.0,
+                    value=float(existing_config.get("agency_pct", 15.0)), step=0.5,
+                    key=f"agency_pct_{selected_plan_id}",
+                )
+                payout_pct = pc2.number_input(
+                    "Broadcaster/Recruiter payout percentage", min_value=0.0, max_value=100.0,
+                    value=float(existing_config.get("payout_pct", 10.0)), step=0.5,
+                    key=f"payout_pct_{selected_plan_id}",
+                )
+                if payout_pct > agency_pct:
+                    st.error("Payout percentage cannot exceed the agency earning percentage.")
+                pc3, pc4, pc5 = st.columns(3)
+                currency = pc3.text_input("Currency", value=existing_config.get("currency", "USD"),
+                                           key=f"currency_{selected_plan_id}")
+                min_diamonds = pc4.number_input(
+                    "Optional minimum diamonds", min_value=0.0,
+                    value=float(existing_config.get("min_diamonds", 0.0)), key=f"min_diamonds_{selected_plan_id}",
+                )
+                has_cap = pc5.checkbox(
+                    "Set a maximum monthly payout", value=existing_config.get("max_monthly_payout") is not None,
+                    key=f"has_cap_{selected_plan_id}",
+                )
+                max_payout = st.number_input(
+                    "Maximum monthly payout", min_value=0.0,
+                    value=float(existing_config.get("max_monthly_payout") or 0.0), key=f"max_payout_{selected_plan_id}",
+                ) if has_cap else None
+                config_to_save = {"agency_pct": agency_pct, "payout_pct": payout_pct, "currency": currency,
+                                   "min_diamonds": min_diamonds, "max_monthly_payout": max_payout}
+                tier_mode_to_save, frequency_to_save, milestones_to_save = None, None, []
+            elif plan_row["reward_method"] in ("fixed_cash", "fixed_coins"):
+                fixed_amount = st.number_input(
+                    "Fixed reward amount", min_value=0.0,
+                    value=float(existing_config.get("fixed_amount", 0.0)), key=f"fixed_amount_{selected_plan_id}",
+                )
+                config_to_save = {"fixed_amount": fixed_amount}
+                tier_mode_to_save, frequency_to_save, milestones_to_save = None, "monthly_once", []
+            else:
+                mc1, mc2 = st.columns(2)
+                tier_mode_keys = list(TIER_MODE_LABELS.keys())
+                default_tier_mode = (
+                    latest_version["tier_calculation_mode"]
+                    if latest_version is not None and latest_version["tier_calculation_mode"] else "highest_only"
+                )
+                tier_mode_to_save = mc1.selectbox(
+                    "Tier calculation", tier_mode_keys, format_func=lambda k: TIER_MODE_LABELS[k],
+                    index=tier_mode_keys.index(default_tier_mode), key=f"tier_mode_{selected_plan_id}",
+                )
+                frequency_keys = list(FREQUENCY_LABELS.keys())
+                default_frequency = (
+                    latest_version["frequency"] if latest_version is not None and latest_version["frequency"] else "lifetime_once"
+                )
+                frequency_to_save = mc2.selectbox(
+                    "Frequency", frequency_keys, format_func=lambda k: FREQUENCY_LABELS[k],
+                    index=frequency_keys.index(default_frequency), key=f"frequency_{selected_plan_id}",
+                )
+                basis = st.selectbox(
+                    "Milestone basis", ["diamonds_redeemed", "diamonds_earned"],
+                    index=0 if existing_config.get("milestone_basis", "diamonds_redeemed") == "diamonds_redeemed" else 1,
+                    format_func=lambda v: v.replace("_", " ").title(), key=f"basis_{selected_plan_id}",
+                )
+                has_plan_cap = st.checkbox(
+                    "Set a plan-level reward cap", value=existing_config.get("plan_cap") is not None,
+                    key=f"has_plan_cap_{selected_plan_id}",
+                )
+                plan_cap = st.number_input(
+                    "Plan-level reward cap", min_value=0.0,
+                    value=float(existing_config.get("plan_cap") or 0.0), key=f"plan_cap_{selected_plan_id}",
+                ) if has_plan_cap else None
+                config_to_save = {"milestone_basis": basis, "plan_cap": plan_cap}
+
+                st.markdown("##### Milestones")
+                st.caption("Add, edit, or remove rows below. The Order column controls evaluation order.")
+                if milestones_state_key not in st.session_state:
+                    if latest_version is not None:
+                        existing_milestones = store.get_plan_milestones(business_id, int(latest_version["id"]))
+                        st.session_state[milestones_state_key] = (
+                            existing_milestones.to_dict("records") if not existing_milestones.empty else []
+                        )
+                    else:
+                        st.session_state[milestones_state_key] = []
+                editable_cols = ["order_index", "name", "trigger_type", "threshold", "reward_value", "unit",
+                                  "requires_manual_approval", "max_total_reward_per_broadcaster", "frequency"]
+                milestone_editor_df = pd.DataFrame(st.session_state[milestones_state_key])
+                for col in editable_cols:
+                    if col not in milestone_editor_df.columns:
+                        milestone_editor_df[col] = None
+                edited_milestones = st.data_editor(
+                    milestone_editor_df[editable_cols], num_rows="dynamic", hide_index=True, width="stretch",
+                    key=f"milestone_editor_{selected_plan_id}",
+                    column_config={
+                        "order_index": st.column_config.NumberColumn("Order", help="Lower numbers evaluate first."),
+                        "name": st.column_config.TextColumn("Milestone name"),
+                        "trigger_type": st.column_config.SelectboxColumn("Trigger type", options=list(TRIGGER_TYPE_LABELS.keys())),
+                        "threshold": st.column_config.NumberColumn("Threshold"),
+                        "reward_value": st.column_config.NumberColumn("Reward value"),
+                        "unit": st.column_config.SelectboxColumn("Unit", options=["cash", "coins"]),
+                        "requires_manual_approval": st.column_config.CheckboxColumn("Manual approval?"),
+                        "max_total_reward_per_broadcaster": st.column_config.NumberColumn("Max total reward"),
+                        "frequency": st.column_config.SelectboxColumn("Repeatability", options=list(FREQUENCY_LABELS.keys())),
+                    },
+                )
+                st.session_state[milestones_state_key] = edited_milestones.to_dict("records")
+
+                sorted_edited = edited_milestones.sort_values("order_index", na_position="last").to_dict("records")
+                milestones_to_save = [
+                    row for row in sorted_edited
+                    if row.get("threshold") is not None and row.get("unit") in ("cash", "coins")
+                    and row.get("reward_value") is not None
+                ]
+
+                st.markdown("##### Preview")
+                preview_value = st.number_input(
+                    f"Preview at this {basis.replace('_', ' ')} total", min_value=0.0, value=60000.0,
+                    key=f"preview_value_{selected_plan_id}",
+                )
+                preview_milestones = [
+                    {**row, "milestone_key": row.get("milestone_key") or f"preview_{i}"}
+                    for i, row in enumerate(milestones_to_save)
+                ]
+                if preview_milestones:
+                    preview_result = utils.calculate_milestone_reward(
+                        preview_value, preview_milestones, tier_mode_to_save, frequency_to_save, set(),
+                    )
+                    st.info(
+                        f"At **{preview_value:,.0f} {basis.replace('_', ' ')}**: "
+                        f"**${preview_result['total_cash']:,.2f}** cash, "
+                        f"**{preview_result['total_coins']:,.0f}** coins."
+                    )
+                else:
+                    st.caption("Add at least one milestone with a threshold, reward value, and unit to preview.")
+
+            if st.button("Save configuration", type="primary", icon=":material/save:", key=f"save_cfg_{selected_plan_id}"):
+                try:
+                    store.save_reward_plan_version(
+                        business_id, int(selected_plan_id), effective_from_input.strip(),
+                        effective_to_input.strip() or None, config_to_save, tier_mode_to_save,
+                        frequency_to_save, milestones_to_save, username,
+                    )
+                    store.log_security_event(
+                        "reward_plan_edited", username, user_role, business_id,
+                        "reward_plan", str(selected_plan_id), f"effective_from={effective_from_input.strip()}",
+                    )
+                    refresh_reward_plan_caches()
+                    st.session_state.pop(milestones_state_key, None)
+                    st.session_state["_reward_plan_notice"] = "Reward plan configuration saved."
+                    st.rerun()
+                except ValueError as error:
+                    st.error(str(error))
+    plan_library_panel.__exit__(None, None, None)
+
+    # =================================================== Broadcaster Assignments
+    broadcaster_assign_panel = dashboard_panel("reward_plans_dashboard", "Broadcaster Assignments")
+    broadcaster_assign_panel.__enter__()
+    st.markdown("#### Assign a Reward Plan to Broadcasters")
+    active_broadcaster_plans = load_reward_plans(business_id, recipient_type="broadcaster", status="active")
+    ba_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
+    if active_broadcaster_plans.empty:
+        st.info("Activate a broadcaster reward plan first (Plan Library tab).")
+    elif not ba_periods:
+        st.info("Upload a monthly report first.")
+    else:
+        ba_period = st.selectbox("Reporting month", ba_periods, key="ba_period")
+        roster_all = (
+            load_all_raw(business_id).sort_values("period").drop_duplicates("profile_url", keep="last")
+        )
+        roster_all = roster_all[roster_all["profile_url"].fillna("").astype(str).str.strip() != ""]
+        effective_assignments = load_effective_broadcaster_assignments(business_id, ba_period)
+
+        af1, af2 = st.columns(2)
+        plan_filter_options = ["All plans", "Without a plan"] + active_broadcaster_plans["name"].tolist()
+        plan_filter = af1.selectbox("Filter by plan", plan_filter_options, key="ba_plan_filter")
+        search_text = af2.text_input("Search broadcaster", key="ba_search")
+
+        directory = roster_all[["profile_url", "broadcaster_name"]].copy()
+        if not effective_assignments.empty:
+            directory = directory.merge(
+                effective_assignments[["profile_url", "plan_name", "reward_method"]], on="profile_url", how="left",
+            )
+        else:
+            directory["plan_name"] = None
+            directory["reward_method"] = None
+        if plan_filter == "Without a plan":
+            directory = directory[directory["plan_name"].isna()]
+        elif plan_filter != "All plans":
+            directory = directory[directory["plan_name"] == plan_filter]
+        if search_text.strip():
+            needle = search_text.strip()
+            directory = directory[
+                directory["broadcaster_name"].str.contains(needle, case=False, na=False)
+                | directory["profile_url"].str.contains(needle, case=False, na=False)
+            ]
+        st.dataframe(
+            directory, hide_index=True, width="stretch",
+            column_config={
+                "broadcaster_name": "Broadcaster",
+                "profile_url": st.column_config.LinkColumn("Profile", display_text="Open"),
+                "plan_name": "Current plan", "reward_method": "Method",
+            },
+        )
+
+        st.markdown("##### Bulk assign")
+        name_lookup = dict(zip(directory["profile_url"], directory["broadcaster_name"]))
+        bulk_targets = st.multiselect(
+            "Broadcasters", directory["profile_url"].tolist(),
+            format_func=lambda u: name_lookup.get(u, u), key="ba_bulk_targets",
+        )
+        bplan_options = dict(zip(active_broadcaster_plans["id"], active_broadcaster_plans["name"]))
+        bplan_ids = list(bplan_options.keys())
+        bplan_choice = st.selectbox("Reward plan", bplan_ids, format_func=lambda k: bplan_options[k], key="ba_bulk_plan")
+        beff1, beff2 = st.columns(2)
+        bulk_from = beff1.text_input("Effective from (YYYY-MM)", value=ba_period, key="ba_bulk_from")
+        bulk_to = beff2.text_input("Optional end month", key="ba_bulk_to")
+        if st.button("Assign selected", type="primary", disabled=not bulk_targets, key="ba_bulk_go"):
+            succeeded, failed = store.bulk_assign_broadcasters_to_plan(
+                business_id, bulk_targets, int(bplan_choice), bulk_from.strip(), bulk_to.strip() or None, username,
+            )
+            store.log_security_event(
+                "reward_plan_assigned", username, user_role, business_id,
+                "reward_plan", str(bplan_choice), f"broadcasters={len(succeeded)};failed={len(failed)}",
+            )
+            refresh_reward_plan_caches()
+            if failed:
+                st.warning(
+                    f"Assigned {len(succeeded)}; {len(failed)} could not be assigned: "
+                    + "; ".join(f"{p}: {e}" for p, e in failed[:5])
+                )
+            else:
+                st.session_state["_reward_plan_notice"] = f"Assigned {len(succeeded)} broadcaster(s)."
+            st.rerun()
+
+        st.markdown("##### Assignment history / remove a future assignment")
+        if not roster_all.empty:
+            history_choice = st.selectbox(
+                "Broadcaster", roster_all["profile_url"].tolist(),
+                format_func=lambda u: name_lookup.get(u, u), key="ba_history_target",
+            )
+            history_df = load_broadcaster_assignments(business_id, history_choice)
+            if history_df.empty:
+                st.caption("No assignment history for this broadcaster.")
+            else:
+                st.dataframe(history_df, hide_index=True, width="stretch")
+                future_rows = history_df[history_df["effective_from"] > ba_period]
+                if not future_rows.empty:
+                    future_ids = future_rows["id"].tolist()
+                    remove_choice = st.selectbox(
+                        "Remove a future assignment", future_ids,
+                        format_func=lambda rid: (
+                            f"{future_rows[future_rows['id'] == rid].iloc[0]['plan_name']} "
+                            f"from {future_rows[future_rows['id'] == rid].iloc[0]['effective_from']}"
+                        ),
+                        key="ba_remove_choice",
+                    )
+                    if st.button("Remove this future assignment", key="ba_remove_go"):
+                        try:
+                            store.remove_future_assignment(
+                                "broadcaster_reward_assignments", business_id, int(remove_choice), ba_period,
+                            )
+                            refresh_reward_plan_caches()
+                            st.toast("Future assignment removed.", icon="✅")
+                            st.rerun()
+                        except ValueError as error:
+                            st.error(str(error))
+    broadcaster_assign_panel.__exit__(None, None, None)
+
+    # ===================================================== Recruiter Assignments
+    recruiter_assign_panel = dashboard_panel("reward_plans_dashboard", "Recruiter Assignments")
+    recruiter_assign_panel.__enter__()
+    st.markdown("#### Default Reward Plan per Recruiter")
+    active_recruiter_plans = load_reward_plans(business_id, recipient_type="recruiter", status="active")
+    ra_periods = sorted(store.list_periods("monthly", business_id), reverse=True)
+    ra_period = st.selectbox("Reporting month", ra_periods or [dt.date.today().strftime("%Y-%m")], key="ra_period")
+    agencies_list = load_agencies(business_id)
+    if active_recruiter_plans.empty:
+        st.info("Activate a recruiter reward plan first (Plan Library tab).")
+    elif not agencies_list:
+        st.info("No recruiters/Sub-Agencies exist yet.")
+    else:
+        effective_recruiter = load_effective_recruiter_assignments(business_id, ra_period)
+        assigned_agencies = set(effective_recruiter["agency_name"]) if not effective_recruiter.empty else set()
+        without_plan = [a for a in agencies_list if a not in assigned_agencies]
+        if without_plan:
+            st.warning(f"{len(without_plan)} recruiter(s) without a default plan: {', '.join(without_plan)}")
+        rplan_options = dict(zip(active_recruiter_plans["id"], active_recruiter_plans["name"]))
+        rplan_ids = list(rplan_options.keys())
+        r1, r2, r3 = st.columns(3)
+        target_agency = r1.selectbox("Recruiter", agencies_list, key="ra_target_agency")
+        target_plan = r2.selectbox("Reward plan", rplan_ids, format_func=lambda k: rplan_options[k], key="ra_target_plan")
+        target_from = r3.text_input("Effective from (YYYY-MM)", value=ra_period, key="ra_target_from")
+        if st.button("Set default plan", type="primary", key="ra_set_default"):
+            try:
+                store.assign_recruiter_default_plan(
+                    business_id, target_agency, int(target_plan), target_from.strip(), None, username,
+                )
+                store.log_security_event(
+                    "reward_plan_assigned", username, user_role, business_id,
+                    "recruiter", target_agency, f"plan={target_plan}",
+                )
+                refresh_reward_plan_caches()
+                st.toast(f"Default plan set for {target_agency}.", icon="✅")
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
+        st.dataframe(load_recruiter_assignments(business_id), hide_index=True, width="stretch")
+
+        st.markdown("#### Broadcaster-Level Override")
+        override_agency = st.selectbox("Recruiter", agencies_list, key="ra_override_agency")
+        roster_assignments = load_assignments(business_id)
+        roster_for_agency = (
+            roster_assignments[roster_assignments["sub_agency"] == override_agency]
+            if not roster_assignments.empty else pd.DataFrame()
+        )
+        if roster_for_agency.empty:
+            st.caption("This recruiter has no recruited broadcasters yet.")
+        else:
+            override_name_lookup = dict(zip(roster_for_agency["profile_url"], roster_for_agency["broadcaster_name"]))
+            override_profile = st.selectbox(
+                "Broadcaster", roster_for_agency["profile_url"].tolist(),
+                format_func=lambda u: override_name_lookup.get(u, u), key="ra_override_profile",
+            )
+            o1, o2, o3 = st.columns(3)
+            override_plan = o1.selectbox("Reward plan", rplan_ids, format_func=lambda k: rplan_options[k], key="ra_override_plan")
+            override_from = o2.text_input("Effective from (YYYY-MM)", value=ra_period, key="ra_override_from")
+            with o3:
+                st.write("")
+                st.write("")
+                if st.button("Set override", type="primary", key="ra_override_go"):
+                    try:
+                        store.assign_recruiter_broadcaster_override(
+                            business_id, override_agency, override_profile, int(override_plan),
+                            override_from.strip(), None, username,
+                        )
+                        store.log_security_event(
+                            "reward_plan_assigned", username, user_role, business_id,
+                            "recruiter_override", override_profile, f"agency={override_agency};plan={override_plan}",
+                        )
+                        refresh_reward_plan_caches()
+                        st.toast("Override set.", icon="✅")
+                        st.rerun()
+                    except ValueError as error:
+                        st.error(str(error))
+        st.dataframe(load_recruiter_overrides(business_id), hide_index=True, width="stretch")
+    recruiter_assign_panel.__exit__(None, None, None)
+
+    # ================================================ Manual Events & Approvals
+    manual_events_panel = dashboard_panel("reward_plans_dashboard", "Manual Events & Approvals")
+    manual_events_panel.__enter__()
+    st.markdown("#### Record a Manual Milestone Event")
+    st.caption("Use this for milestones the monthly CSV can't prove, like signup completed or first live completed.")
+    me1, me2, me3 = st.columns(3)
+    me_recipient_type = me1.selectbox("Recipient type", ["Broadcaster", "Recruiter"], key="me_recipient_type")
+    me_recipient_id, me_related_profile = None, None
+    if me_recipient_type == "Broadcaster":
+        me_roster = load_all_raw(business_id).sort_values("period").drop_duplicates("profile_url", keep="last")
+        me_roster = me_roster[me_roster["profile_url"].fillna("").astype(str).str.strip() != ""]
+        if not me_roster.empty:
+            me_name_lookup = dict(zip(me_roster["profile_url"], me_roster["broadcaster_name"]))
+            me_recipient_id = me2.selectbox(
+                "Broadcaster", me_roster["profile_url"].tolist(),
+                format_func=lambda u: me_name_lookup.get(u, u), key="me_recipient_broadcaster",
+            )
+    else:
+        me_agencies = load_agencies(business_id)
+        if me_agencies:
+            me_recipient_id = me2.selectbox("Recruiter", me_agencies, key="me_recipient_agency")
+            me_roster_assignments = load_assignments(business_id)
+            me_roster_for_agency = (
+                me_roster_assignments[me_roster_assignments["sub_agency"] == me_recipient_id]
+                if not me_roster_assignments.empty else pd.DataFrame()
+            )
+            if not me_roster_for_agency.empty:
+                me_related_lookup = dict(zip(me_roster_for_agency["profile_url"], me_roster_for_agency["broadcaster_name"]))
+                me_related_profile = st.selectbox(
+                    "Recruited broadcaster", me_roster_for_agency["profile_url"].tolist(),
+                    format_func=lambda u: me_related_lookup.get(u, u), key="me_related_profile",
+                )
+    me_trigger = me3.selectbox(
+        "Milestone", ["signup_completed", "first_live_completed", "manual_approval", "custom"],
+        format_func=lambda k: TRIGGER_TYPE_LABELS.get(k, k), key="me_trigger_type",
+    )
+    me4, me5 = st.columns(2)
+    me_event_date = me4.date_input("Event date", value=dt.date.today(), key="me_event_date")
+    me_notes = me5.text_input("Notes", key="me_notes")
+    if st.button("Record event", type="primary", disabled=not me_recipient_id, key="me_record"):
+        store.create_manual_milestone_event(
+            business_id, me_recipient_type.lower(), me_recipient_id, me_related_profile,
+            me_trigger, me_event_date, me_notes, username,
+        )
+        store.log_security_event(
+            "manual_milestone_recorded", username, user_role, business_id,
+            me_recipient_type.lower(), str(me_recipient_id), me_trigger,
+        )
+        refresh_reward_plan_caches()
+        st.toast("Manual milestone event recorded - pending approval below.", icon="✅")
+        st.rerun()
+
+    st.markdown("#### Pending Approvals")
+    pending_events = load_manual_milestone_events(business_id, status="Pending")
+    if pending_events.empty:
+        st.info("No manual milestone events awaiting approval.")
+    else:
+        for _, event in pending_events.iterrows():
+            with st.container(border=True):
+                st.markdown(
+                    f"**{TRIGGER_TYPE_LABELS.get(event['trigger_type'], event['trigger_type'])}** "
+                    f"for **{event['recipient_id']}** on {event['event_date']}"
+                )
+                if event["notes"]:
+                    st.caption(event["notes"])
+                ce1, ce2 = st.columns(2)
+                if ce1.button("Approve", type="primary", icon=":material/check:", key=f"me_approve_{event['id']}"):
+                    store.confirm_manual_milestone_event(business_id, int(event["id"]), True, username)
+                    store.log_security_event(
+                        "manual_milestone_confirmed", username, user_role, business_id,
+                        "manual_milestone_event", str(event["id"]), "approved",
+                    )
+                    refresh_reward_plan_caches()
+                    st.rerun()
+                if ce2.button("Reject", icon=":material/close:", key=f"me_reject_{event['id']}"):
+                    store.confirm_manual_milestone_event(business_id, int(event["id"]), False, username)
+                    store.log_security_event(
+                        "manual_milestone_confirmed", username, user_role, business_id,
+                        "manual_milestone_event", str(event["id"]), "rejected",
+                    )
+                    refresh_reward_plan_caches()
+                    st.rerun()
+
+    st.markdown("#### All Manual Events")
+    all_events = load_manual_milestone_events(business_id)
+    if not all_events.empty:
+        st.dataframe(all_events, hide_index=True, width="stretch")
+    manual_events_panel.__exit__(None, None, None)
+
+elif st.session_state.page == "RecruiterRewards":
+    if not (is_owner or is_sub_agency):
+        st.error("Access denied.")
+        st.stop()
+    st.markdown('<div class="owner-overview-page"></div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="overview-hero"><div><div class="overview-eyebrow">Recruiter rewards</div>
+    <h1>{"Recruiter Rewards" if is_owner else "My Rewards"}</h1>
+    <p>Milestone and percentage-based reward progress for {"every recruiter" if is_owner else "your recruited broadcasters"}.</p>
+    </div><div class="overview-period-pill">Configurable reward plans</div></div>
+    """, unsafe_allow_html=True)
+
+    rr_calcs = load_reward_calculations(business_id, recipient_type="recruiter")
+    if not is_owner:
+        # Sub-Agency users see only their own roster and rewards (req #12/#17)
+        # - no agency-wide totals, no other recruiter's data.
+        rr_calcs = rr_calcs[rr_calcs["recipient_id"] == user_agency] if not rr_calcs.empty else rr_calcs
+
+    if rr_calcs.empty:
+        st.info(
+            "No recruiter reward-plan calculations yet."
+            if is_owner else "No reward-plan calculations yet for your roster."
+        )
+        st.stop()
+
+    rr_calcs = rr_calcs.copy()
+    rr_calcs["effective_amount"] = rr_calcs["adjusted_amount"].fillna(rr_calcs["calculated_amount"])
+
+    if is_owner:
+        recruiter_choice = st.selectbox(
+            "Recruiter", ["All"] + sorted(rr_calcs["recipient_id"].unique().tolist()), key="rr_recruiter_choice",
+        )
+        if recruiter_choice != "All":
+            rr_calcs = rr_calcs[rr_calcs["recipient_id"] == recruiter_choice]
+
+    cash_earned = float(rr_calcs[rr_calcs["unit"] == "cash"]["effective_amount"].sum())
+    coins_earned = float(rr_calcs[rr_calcs["unit"] == "coins"]["effective_amount"].sum())
+    pending_amt = rr_calcs[rr_calcs["status"] == "Awaiting Approval"]
+    approved_amt = rr_calcs[rr_calcs["status"] == "Approved"]
+    paid_amt = rr_calcs[rr_calcs["status"] == "Paid"]
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Cash earned", f"${cash_earned:,.2f}")
+    m2.metric("Coins earned", f"{coins_earned:,.0f}")
+    m3.metric("Pending approval", len(pending_amt))
+    m4.metric("Paid rewards", len(paid_amt))
+    st.caption("Cash and coin rewards are always shown separately.")
+
+    st.markdown("#### Per-Broadcaster Breakdown")
+    breakdown = rr_calcs.groupby(
+        ["recipient_id", "related_profile_url", "unit"], as_index=False,
+    )["effective_amount"].sum()
+    st.dataframe(
+        breakdown, hide_index=True, width="stretch",
+        column_config={
+            "recipient_id": "Recruiter", "related_profile_url": st.column_config.LinkColumn("Broadcaster", display_text="Open profile"),
+            "unit": "Unit", "effective_amount": st.column_config.NumberColumn("Amount", format="%.2f"),
+        },
+    )
+
+    st.markdown("#### Reward Detail")
+    detail_cols = ["period", "recipient_id", "related_profile_url", "plan_name", "reward_method",
+                   "effective_amount", "unit", "status"]
+    st.dataframe(
+        rr_calcs[detail_cols].sort_values("period", ascending=False), hide_index=True, width="stretch",
+        column_config={
+            "period": "Period", "recipient_id": "Recruiter",
+            "related_profile_url": st.column_config.LinkColumn("Broadcaster", display_text="Open profile"),
+            "plan_name": "Plan", "reward_method": "Method",
+            "effective_amount": st.column_config.NumberColumn("Amount", format="%.2f"), "unit": "Unit", "status": "Status",
+        },
+    )
+    if can_export:
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.download_button(
+                "Download Cash Statement", utils.safe_csv_bytes(rr_calcs[rr_calcs["unit"] == "cash"][detail_cols]),
+                file_name="recruiter_reward_cash_statement.csv", mime="text/csv", width="stretch",
+                icon=":material/download:", key="rr_export_cash",
+            )
+        with cc2:
+            st.download_button(
+                "Download Coin Statement", utils.safe_csv_bytes(rr_calcs[rr_calcs["unit"] == "coins"][detail_cols]),
+                file_name="recruiter_reward_coin_statement.csv", mime="text/csv", width="stretch",
+                icon=":material/download:", key="rr_export_coin",
+            )
+
+    if is_owner:
+        st.markdown("#### Approve / Mark Paid")
+        rr_calcs_view = rr_calcs.copy()
+        rr_calcs_view.insert(0, "selected", False)
+        edited_rr = st.data_editor(
+            rr_calcs_view[["selected"] + detail_cols], hide_index=True, width="stretch",
+            disabled=detail_cols, key="rr_editor",
+            column_config={"selected": st.column_config.CheckboxColumn("Select", width="small")},
+        )
+        rr_selected_ids = rr_calcs_view.loc[edited_rr.index[edited_rr["selected"]], "id"].tolist()
+        rr_approvable = rr_calcs_view[
+            rr_calcs_view["id"].isin(rr_selected_ids) & rr_calcs_view["status"].isin(["Awaiting Approval", "Milestone Reached"])
+        ]["id"].tolist()
+        rr_payable = rr_calcs_view[rr_calcs_view["id"].isin(rr_selected_ids) & (rr_calcs_view["status"] == "Approved")]["id"].tolist()
+        rrb1, rrb2 = st.columns(2)
+        with rrb1:
+            rr_approve_confirm = st.checkbox(f"Confirm approval of {len(rr_approvable)} selected", key="rr_approve_confirm",
+                                              disabled=not rr_approvable)
+            if st.button("Bulk Approve", icon=":material/check_circle:", width="stretch",
+                         disabled=not (rr_approvable and rr_approve_confirm), key="rr_bulk_approve"):
+                for calc_id in rr_approvable:
+                    store.update_reward_status(business_id, int(calc_id), "Approved", username)
+                store.log_security_event("reward_approved", username, user_role, business_id,
+                                          "reward_calculation", "bulk_recruiter", f"count={len(rr_approvable)}")
+                refresh_reward_plan_caches()
+                st.rerun()
+        with rrb2:
+            rr_pay_confirm = st.checkbox(f"Confirm payment of {len(rr_payable)} selected", key="rr_pay_confirm",
+                                          disabled=not rr_payable)
+            if st.button("Bulk Mark Paid", icon=":material/task_alt:", width="stretch",
+                         disabled=not (rr_payable and rr_pay_confirm), key="rr_bulk_pay"):
+                for calc_id in rr_payable:
+                    store.update_reward_status(business_id, int(calc_id), "Paid", username)
+                store.log_security_event("reward_marked_paid", username, user_role, business_id,
+                                          "reward_calculation", "bulk_recruiter", f"count={len(rr_payable)}")
+                refresh_reward_plan_caches()
+                st.rerun()
 
 # =============================================================== BROADCASTERS
 elif st.session_state.page == "Broadcasters":
@@ -3683,6 +5089,14 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
         )
 
         if st.button("Confirm Upload", type="primary", key=f"{upload_form_key}_confirm"):
+            # Reward Plan Management System - CSV-replace protection (req #15):
+            # if this period already had data, capture it before save_period()
+            # overwrites it, so any already-Approved/Paid reward can be flagged
+            # for review instead of silently recalculated below.
+            previous_period_rows = pd.DataFrame()
+            if ptype == "monthly" and not history.empty:
+                previous_period_rows = history[history["period"] == period.strip()]
+
             store.save_period(clean_df, period.strip(), ptype, business_id)
             if is_sub_agency:
                 unassigned_here = [u for u in clean_df["profile_url"] if u not in assigned_urls]
@@ -3693,6 +5107,30 @@ elif st.session_state.page in ("UploadMonthly", "UploadDaily"):
                 "report_period", f"{ptype}:{period.strip()}", f"Rows: {len(clean_df)}",
             )
             refresh_caches()
+
+            if ptype == "monthly":
+                if not previous_period_rows.empty:
+                    changed_profiles = utils.diff_period_for_reward_flags(previous_period_rows, clean_df)
+                    if changed_profiles:
+                        store.flag_rewards_for_review(
+                            business_id, period.strip(), changed_profiles,
+                            "Reporting period was re-uploaded with different values.",
+                        )
+                        store.log_security_event(
+                            "reward_csv_replacement_flagged", username, user_role, business_id,
+                            "report_period", f"monthly:{period.strip()}",
+                            f"profiles={len(changed_profiles)}",
+                        )
+                reward_count = (
+                    recalculate_broadcaster_rewards_for_period(business_id, period.strip(), username)
+                    + recalculate_recruiter_rewards_for_period(business_id, period.strip(), username)
+                )
+                if reward_count:
+                    store.log_security_event(
+                        "reward_calculated", username, user_role, business_id,
+                        "report_period", f"monthly:{period.strip()}", f"rewards={reward_count}",
+                    )
+
             note = f"Saved {len(clean_df)} broadcasters for {period} ({ptype})."
             if is_owner_or_manager and unassigned_count > 0:
                 note += f" {unassigned_count} are classified as Agency Direct."

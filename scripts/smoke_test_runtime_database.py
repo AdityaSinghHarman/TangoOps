@@ -142,6 +142,81 @@ def main():
             )
             cur.fetchone()
 
+            # Reward Plan Management System - fully additive, FK order.
+            cur.execute(
+                "INSERT INTO reward_plans "
+                "(business_id, name, description, recipient_type, reward_method, status, created_by) "
+                "VALUES (%s,%s,'transaction-only-test','broadcaster','diamond_milestone_coins','draft',%s) "
+                "RETURNING id",
+                (business_id, marker, username),
+            )
+            plan_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO reward_plan_versions "
+                "(plan_id, business_id, version_number, effective_from, config, tier_calculation_mode, "
+                "frequency, created_by) VALUES (%s,%s,1,'2099-01','{}'::jsonb,'highest_only', "
+                "'lifetime_once',%s) RETURNING id",
+                (plan_id, business_id, username),
+            )
+            plan_version_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO reward_plan_milestones "
+                "(plan_version_id, business_id, order_index, name, trigger_type, threshold, "
+                "reward_value, unit, frequency) "
+                "VALUES (%s,%s,0,%s,'diamonds_redeemed_threshold',25000,1000,'coins','lifetime_once') "
+                "RETURNING id, milestone_key",
+                (plan_version_id, business_id, marker),
+            )
+            milestone_id, milestone_key = cur.fetchone()
+            cur.execute(
+                "INSERT INTO broadcaster_reward_assignments "
+                "(business_id, profile_url, plan_id, effective_from, assigned_by) "
+                "VALUES (%s,%s,%s,'2099-01',%s) RETURNING id",
+                (business_id, profile_url, plan_id, username),
+            )
+            cur.fetchone()
+            cur.execute(
+                "INSERT INTO recruiter_reward_assignments "
+                "(business_id, agency_name, plan_id, effective_from, assigned_by) "
+                "VALUES (%s,%s,%s,'2099-01',%s) RETURNING id",
+                (business_id, marker, plan_id, username),
+            )
+            cur.fetchone()
+            cur.execute(
+                "INSERT INTO recruiter_reward_broadcaster_overrides "
+                "(business_id, agency_name, profile_url, plan_id, effective_from, assigned_by) "
+                "VALUES (%s,%s,%s,%s,'2099-01',%s) RETURNING id",
+                (business_id, marker, profile_url, plan_id, username),
+            )
+            cur.fetchone()
+            cur.execute(
+                "INSERT INTO manual_milestone_events "
+                "(business_id, recipient_type, recipient_id, trigger_type, event_date, notes, created_by) "
+                "VALUES (%s,'broadcaster',%s,'signup_completed',%s,%s,%s) RETURNING id",
+                (business_id, profile_url, now.date(), marker, username),
+            )
+            manual_event_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO reward_calculations "
+                "(business_id, recipient_type, recipient_id, plan_id, plan_version_id, milestone_id, "
+                "milestone_key, frequency, period, reward_method, performance_snapshot, config_snapshot, "
+                "calculated_amount, unit, trigger_event_id, status) "
+                "VALUES (%s,'broadcaster',%s,%s,%s,%s,%s,'lifetime_once','2099-01', "
+                "'diamond_milestone_coins','{}'::jsonb,'{}'::jsonb,1000,'coins',%s,'Awaiting Approval') "
+                "RETURNING id",
+                (business_id, profile_url, plan_id, plan_version_id, milestone_id, milestone_key,
+                 manual_event_id),
+            )
+            reward_calc_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO reward_adjustments "
+                "(business_id, reward_calculation_id, adjustment_type, reason, original_amount, "
+                "adjustment_amount, final_amount, created_by) "
+                "VALUES (%s,%s,'bonus','transaction-only-test',1000,100,1100,%s) RETURNING id",
+                (business_id, reward_calc_id, username),
+            )
+            cur.fetchone()
+
             cur.execute(
                 "UPDATE businesses SET business_name=%s WHERE business_id=%s RETURNING business_name",
                 (marker + "_updated", business_id),

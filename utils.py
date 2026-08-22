@@ -387,3 +387,249 @@ def performance_target(current_value: float, previous_value: float, growth_goal:
         "remaining": round(max(0, target - current_value), 2),
         "ahead": current_value >= target and target > 0,
     }
+
+
+# ============================================================================
+# Reward Plan Management System - calculation engine.
+#
+# Kept here (not in app.py) deliberately: this module's whole design intent
+# is Streamlit-independent, unit-testable logic (see the module docstring),
+# which the existing Payouts-page payout math never actually followed - it
+# lives in app.py today, untested. This new engine follows the stated intent
+# instead. store.py's CRUD layer calls into these functions; app.py never
+# calls them directly.
+# ============================================================================
+
+DIAMONDS_PER_USD = 200  # mirrors app.py's existing constant of the same value and
+                        # meaning; kept as a separate definition rather than an
+                        # import to avoid a circular import (app.py imports utils,
+                        # never the reverse).
+
+# Tango's referral_statistics export (RAW_COLUMNS above) always carries
+# diamonds/streaming-days/streaming-hours - load_tango_csv() rejects anything
+# missing them - so these trigger types are evaluated automatically on every
+# upload. signup_completed/first_live_completed have no corresponding column
+# in that export at all, and manual_approval/custom are manual by definition,
+# so those four can only ever advance via a confirmed manual_milestone_events
+# row. This is a static classification, not a runtime "detection" step.
+CSV_DERIVABLE_TRIGGER_TYPES = {
+    "diamonds_earned_target", "diamonds_redeemed_target",
+    "streaming_days_target", "streaming_hours_target",
+    "diamonds_redeemed_threshold", "diamonds_earned_threshold",
+}
+MANUAL_ONLY_TRIGGER_TYPES = {
+    "signup_completed", "first_live_completed", "manual_approval", "custom",
+}
+_RECRUITER_TRIGGER_METRIC = {
+    "streaming_days_target": "streaming_days",
+    "streaming_hours_target": "streaming_hours",
+    "diamonds_earned_target": "diamonds_earned",
+    "diamonds_redeemed_target": "diamonds_redeemed",
+}
+
+REWARD_STATUS_TRANSITIONS = {
+    "Not Eligible":      {"In Progress"},
+    "In Progress":       {"Milestone Reached", "Not Eligible"},
+    "Milestone Reached": {"Awaiting Approval", "In Progress"},
+    "Awaiting Approval": {"Approved", "Rejected"},
+    "Approved":          {"Paid", "Cancelled"},
+    "Rejected":          {"In Progress"},
+    "Paid":              set(),
+    "Cancelled":         {"In Progress"},
+}
+
+
+def validate_status_transition(old_status: str, new_status: str) -> bool:
+    """Python-side mirror of the reward_calculations_enforce_status_transition
+    DB trigger (store.SCHEMA) - lets the UI show a clear error before a round
+    trip to the database. The DB trigger remains the real guarantee (a
+    concurrent write can't bypass a Python-only check)."""
+    if old_status == new_status:
+        return True
+    return new_status in REWARD_STATUS_TRANSITIONS.get(old_status, set())
+
+
+def calculate_percentage_reward(diamonds_redeemed: float, agency_pct: float, payout_pct: float,
+                                 min_diamonds: float = 0, max_monthly_payout=None) -> dict:
+    """Broadcaster/recruiter percentage reward - the exact formula the
+    existing Payouts page already uses (app.py), reimplemented here as one
+    Reward Plan method ('percentage_cash'), never as a replacement for that
+    page. redeemed_value = diamonds_redeemed / 200."""
+    diamonds_redeemed = float(diamonds_redeemed or 0)
+    if diamonds_redeemed < float(min_diamonds or 0):
+        return {"redeemed_value": 0.0, "agency_earnings": 0.0, "broadcaster_reward": 0.0,
+                "net_earnings": 0.0, "eligible": False}
+    redeemed_value = diamonds_redeemed / DIAMONDS_PER_USD
+    agency_earnings = redeemed_value * float(agency_pct or 0) / 100
+    broadcaster_reward = redeemed_value * float(payout_pct or 0) / 100
+    if max_monthly_payout is not None:
+        broadcaster_reward = min(broadcaster_reward, float(max_monthly_payout))
+    net_earnings = agency_earnings - broadcaster_reward
+    return {
+        "redeemed_value": round(redeemed_value, 2),
+        "agency_earnings": round(agency_earnings, 2),
+        "broadcaster_reward": round(broadcaster_reward, 2),
+        "net_earnings": round(net_earnings, 2),
+        "eligible": True,
+    }
+
+
+def calculate_fixed_reward(fixed_amount: float, unit: str) -> dict:
+    """Flat per-period cash/coin amount, no diamond dependency."""
+    if unit not in ("cash", "coins"):
+        raise ValueError("unit must be 'cash' or 'coins'.")
+    return {"amount": round(float(fixed_amount or 0), 2), "unit": unit}
+
+
+def calculate_milestone_reward(performance_value: float, milestones: list, tier_calculation_mode: str,
+                                frequency: str, already_awarded: set) -> dict:
+    """Evaluate a broadcaster tier/milestone plan for one performance value.
+
+    milestones: ascending-or-unsorted list of
+        {milestone_key, threshold, reward_value, unit, name} dicts (entries
+        with threshold=None, e.g. manual-only milestones, are ignored here -
+        those go through calculate_recruiter_milestone_reward instead).
+    already_awarded: milestone_keys this recipient has already received a
+        reward for under the rules that apply to `frequency` (the caller
+        decides the scope - lifetime: ever; monthly/period: this period
+        only) - an engine-side defense-in-depth check on top of the
+        database's partial unique indexes, so a duplicate never even
+        reaches an INSERT attempt.
+
+    tier_calculation_mode:
+      - 'highest_only': award only the single highest not-yet-awarded
+        threshold crossed.
+      - 'cumulative': award every not-yet-awarded threshold at/below
+        performance_value (each milestone's reward_value is independent and
+        additive - already_awarded is what prevents a milestone re-firing
+        across periods).
+      - 'incremental_difference': treats each milestone's reward_value as a
+        cumulative target *at* that tier, and awards only the difference
+        between the highest eligible tier's value and the highest tier
+        already awarded - i.e. the marginal reward for newly-crossed
+        ground since the last time this recipient was evaluated, rather
+        than the full tier value or a sum of tier values.
+
+    Never sums cash and coins into one total - always returned separately.
+    """
+    eligible = sorted(
+        (m for m in milestones if m.get("threshold") is not None
+         and float(performance_value or 0) >= float(m["threshold"])),
+        key=lambda m: float(m["threshold"]),
+    )
+    if not eligible:
+        return {"awarded": [], "total_cash": 0.0, "total_coins": 0.0, "tier_reached": None}
+
+    already_awarded = already_awarded or set()
+
+    if tier_calculation_mode == "incremental_difference":
+        highest = eligible[-1]
+        if highest.get("milestone_key") in already_awarded:
+            return {"awarded": [], "total_cash": 0.0, "total_coins": 0.0,
+                     "tier_reached": float(highest["threshold"])}
+        previously_awarded_values = [
+            float(m["reward_value"]) for m in milestones
+            if m.get("milestone_key") in already_awarded
+        ]
+        previous_value = max(previously_awarded_values, default=0.0)
+        delta = round(float(highest["reward_value"]) - previous_value, 2)
+        awarded = [{
+            "milestone_key": highest.get("milestone_key"), "name": highest.get("name"),
+            "threshold": float(highest["threshold"]), "reward_value": delta,
+            "unit": highest["unit"],
+        }] if delta > 0 else []
+        return {
+            "awarded": awarded,
+            "total_cash": delta if awarded and highest["unit"] == "cash" else 0.0,
+            "total_coins": delta if awarded and highest["unit"] == "coins" else 0.0,
+            "tier_reached": float(highest["threshold"]),
+        }
+
+    candidates = [eligible[-1]] if tier_calculation_mode == "highest_only" else eligible
+    awarded = []
+    for milestone in candidates:
+        if milestone.get("milestone_key") in already_awarded:
+            continue
+        awarded.append({
+            "milestone_key": milestone.get("milestone_key"), "name": milestone.get("name"),
+            "threshold": float(milestone["threshold"]), "reward_value": float(milestone["reward_value"]),
+            "unit": milestone["unit"],
+        })
+    total_cash = round(sum(a["reward_value"] for a in awarded if a["unit"] == "cash"), 2)
+    total_coins = round(sum(a["reward_value"] for a in awarded if a["unit"] == "coins"), 2)
+    return {
+        "awarded": awarded, "total_cash": total_cash, "total_coins": total_coins,
+        "tier_reached": float(eligible[-1]["threshold"]),
+    }
+
+
+def calculate_recruiter_milestone_reward(broadcaster_performance: dict, milestone: dict,
+                                          manual_event: dict = None, already_awarded: set = None,
+                                          total_already_paid: float = 0.0) -> dict:
+    """Evaluate one recruiter-plan milestone for one recruited broadcaster.
+    CSV-derivable trigger types read straight from broadcaster_performance
+    (diamonds/streaming values from the current uploaded period);
+    manual-only trigger types require a manual_event with status='Approved'.
+    max_total_reward_per_broadcaster (on the milestone) caps the running
+    total across every milestone in the plan for this one broadcaster."""
+    already_awarded = already_awarded or set()
+    key = milestone.get("milestone_key")
+    trigger_type = milestone.get("trigger_type")
+    reward_value = float(milestone.get("reward_value", 0) or 0)
+    unit = milestone.get("unit")
+    cap = milestone.get("max_total_reward_per_broadcaster")
+
+    if key in already_awarded and milestone.get("frequency") != "manual_repeatable":
+        return {"eligible": False, "reward_value": 0.0, "unit": unit,
+                "requires_manual_approval": False, "reason": "Already awarded."}
+
+    if trigger_type in CSV_DERIVABLE_TRIGGER_TYPES:
+        threshold = milestone.get("threshold")
+        metric_key = _RECRUITER_TRIGGER_METRIC.get(trigger_type)
+        value = float((broadcaster_performance or {}).get(metric_key, 0) or 0)
+        eligible = threshold is None or value >= float(threshold)
+    elif trigger_type in MANUAL_ONLY_TRIGGER_TYPES:
+        eligible = bool(manual_event) and manual_event.get("status") == "Approved"
+    else:
+        eligible = False
+
+    if not eligible:
+        return {"eligible": False, "reward_value": 0.0, "unit": unit,
+                "requires_manual_approval": bool(milestone.get("requires_manual_approval")),
+                "reason": "Trigger condition not met."}
+
+    payable = reward_value
+    if cap is not None:
+        remaining = max(0.0, float(cap) - float(total_already_paid or 0))
+        payable = min(payable, remaining)
+
+    return {
+        "eligible": payable > 0, "reward_value": round(payable, 2), "unit": unit,
+        "requires_manual_approval": bool(milestone.get("requires_manual_approval")),
+        "reason": "" if payable > 0 else "Plan reward cap reached.",
+    }
+
+
+def diff_period_for_reward_flags(old_rows: pd.DataFrame, new_rows: pd.DataFrame) -> list:
+    """profile_urls whose diamonds/streaming values changed between an old
+    and a re-uploaded period. Drives the CSV-replace-flagging mechanism
+    (req #15): the caller flags (never silently recalculates) any already-
+    Approved/Paid reward for these profiles for that period."""
+    if old_rows is None or old_rows.empty:
+        return []
+    compare_cols = ["diamonds_earned", "diamonds_redeemed", "streaming_days", "streaming_hours"]
+    old_slim = old_rows[["profile_url"] + compare_cols].copy()
+    new_slim = (
+        new_rows[["profile_url"] + compare_cols].copy()
+        if new_rows is not None and not new_rows.empty
+        else pd.DataFrame(columns=["profile_url"] + compare_cols)
+    )
+    merged = old_slim.merge(new_slim, on="profile_url", how="left", suffixes=("_old", "_new"))
+    changed = []
+    for _, row in merged.iterrows():
+        for col in compare_cols:
+            new_val = row.get(f"{col}_new")
+            if pd.isna(new_val) or not math.isclose(float(row[f"{col}_old"]), float(new_val), abs_tol=1e-6):
+                changed.append(row["profile_url"])
+                break
+    return changed

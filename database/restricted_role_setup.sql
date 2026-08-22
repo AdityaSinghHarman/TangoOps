@@ -27,6 +27,11 @@
 --     catalogs (roles/permissions/role_permissions/plans/plan_features/
 --     profiles) keep the old permissive policy - deliberately deferred,
 --     see PHASE_LOG.md, not an oversight.
+--
+-- 23 Aug 2026 (Reward Plan Management System): added the 9 new reward-plan
+-- tables to the tenant-scoped list (all carry business_id) and their
+-- sequences below. Fully additive - broadcaster_payout_rules/
+-- broadcaster_payout_status stay exactly where they already were.
 
 DO $$
 BEGIN
@@ -57,7 +62,11 @@ BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'memberships', 'entitlements', 'agencies', 'raw_uploads', 'assignments',
         'assignment_log', 'archived_periods', 'security_audit',
-        'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events'
+        'broadcaster_payout_rules', 'broadcaster_payout_status', 'billing_events',
+        'reward_plans', 'reward_plan_versions', 'reward_plan_milestones',
+        'broadcaster_reward_assignments', 'recruiter_reward_assignments',
+        'recruiter_reward_broadcaster_overrides', 'manual_milestone_events',
+        'reward_calculations', 'reward_adjustments'
     ] LOOP
         EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO tangoops_app',
@@ -110,6 +119,15 @@ GRANT USAGE, SELECT ON SEQUENCE public.raw_uploads_id_seq TO tangoops_app;
 GRANT USAGE, SELECT ON SEQUENCE public.assignment_log_id_seq TO tangoops_app;
 GRANT USAGE, SELECT ON SEQUENCE public.security_audit_id_seq TO tangoops_app;
 GRANT USAGE, SELECT ON SEQUENCE public.billing_events_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.reward_plans_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.reward_plan_versions_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.reward_plan_milestones_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.broadcaster_reward_assignments_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.recruiter_reward_assignments_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.recruiter_reward_broadcaster_overrides_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.manual_milestone_events_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.reward_calculations_id_seq TO tangoops_app;
+GRANT USAGE, SELECT ON SEQUENCE public.reward_adjustments_id_seq TO tangoops_app;
 
 SELECT
     rolname, rolsuper, rolcreatedb, rolcreaterole,

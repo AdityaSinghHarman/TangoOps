@@ -21,9 +21,17 @@ TABLES = (
     "role_permissions", "plans", "plan_features", "entitlements", "agencies", "raw_uploads",
     "assignments", "assignment_log", "archived_periods", "profiles", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status", "billing_events",
+    "reward_plans", "reward_plan_versions", "reward_plan_milestones",
+    "broadcaster_reward_assignments", "recruiter_reward_assignments",
+    "recruiter_reward_broadcaster_overrides", "manual_milestone_events",
+    "reward_calculations", "reward_adjustments",
 )
 SEQUENCES = (
     "raw_uploads_id_seq", "assignment_log_id_seq", "security_audit_id_seq", "billing_events_id_seq",
+    "reward_plans_id_seq", "reward_plan_versions_id_seq", "reward_plan_milestones_id_seq",
+    "broadcaster_reward_assignments_id_seq", "recruiter_reward_assignments_id_seq",
+    "recruiter_reward_broadcaster_overrides_id_seq", "manual_milestone_events_id_seq",
+    "reward_calculations_id_seq", "reward_adjustments_id_seq",
 )
 TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
 SEQUENCE_PRIVILEGES = ("USAGE", "SELECT")

@@ -39,6 +39,10 @@ IN_SCOPE_TABLES = [
     "memberships", "entitlements", "agencies", "raw_uploads", "assignments",
     "assignment_log", "archived_periods", "security_audit",
     "broadcaster_payout_rules", "broadcaster_payout_status", "billing_events",
+    "reward_plans", "reward_plan_versions", "reward_plan_milestones",
+    "broadcaster_reward_assignments", "recruiter_reward_assignments",
+    "recruiter_reward_broadcaster_overrides", "manual_milestone_events",
+    "reward_calculations", "reward_adjustments",
 ]
 
 
@@ -138,6 +142,73 @@ def main():
                     "(business_id, event_type, method, amount, currency, recorded_by) "
                     "VALUES (%s,'payment_recorded','cash',999,'INR',%s)",
                     (biz, user),
+                )
+                cur.execute(
+                    "INSERT INTO reward_plans "
+                    "(business_id, name, recipient_type, reward_method, status, created_by) "
+                    "VALUES (%s,%s,'broadcaster','diamond_milestone_coins','active',%s) RETURNING id",
+                    (biz, biz, user),
+                )
+                plan_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO reward_plan_versions "
+                    "(plan_id, business_id, version_number, effective_from, config, "
+                    "tier_calculation_mode, frequency, created_by) "
+                    "VALUES (%s,%s,1,'2099-01','{}'::jsonb,'highest_only','lifetime_once',%s) "
+                    "RETURNING id",
+                    (plan_id, biz, user),
+                )
+                plan_version_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO reward_plan_milestones "
+                    "(plan_version_id, business_id, order_index, name, trigger_type, threshold, "
+                    "reward_value, unit, frequency) "
+                    "VALUES (%s,%s,0,%s,'diamonds_redeemed_threshold',25000,1000,'coins','lifetime_once') "
+                    "RETURNING id, milestone_key",
+                    (plan_version_id, biz, biz),
+                )
+                milestone_id, milestone_key = cur.fetchone()
+                cur.execute(
+                    "INSERT INTO broadcaster_reward_assignments "
+                    "(business_id, profile_url, plan_id, effective_from, assigned_by) "
+                    "VALUES (%s,%s,%s,'2099-01',%s)",
+                    (biz, profile, plan_id, user),
+                )
+                cur.execute(
+                    "INSERT INTO recruiter_reward_assignments "
+                    "(business_id, agency_name, plan_id, effective_from, assigned_by) "
+                    "VALUES (%s,%s,%s,'2099-01',%s)",
+                    (biz, biz, plan_id, user),
+                )
+                cur.execute(
+                    "INSERT INTO recruiter_reward_broadcaster_overrides "
+                    "(business_id, agency_name, profile_url, plan_id, effective_from, assigned_by) "
+                    "VALUES (%s,%s,%s,%s,'2099-01',%s)",
+                    (biz, biz, profile, plan_id, user),
+                )
+                cur.execute(
+                    "INSERT INTO manual_milestone_events "
+                    "(business_id, recipient_type, recipient_id, trigger_type, event_date, created_by) "
+                    "VALUES (%s,'broadcaster',%s,'signup_completed',%s,%s)",
+                    (biz, profile, now.date(), user),
+                )
+                cur.execute(
+                    "INSERT INTO reward_calculations "
+                    "(business_id, recipient_type, recipient_id, plan_id, plan_version_id, "
+                    "milestone_id, milestone_key, frequency, period, reward_method, "
+                    "performance_snapshot, config_snapshot, calculated_amount, unit, status) "
+                    "VALUES (%s,'broadcaster',%s,%s,%s,%s,%s,'lifetime_once','2099-01', "
+                    "'diamond_milestone_coins','{}'::jsonb,'{}'::jsonb,1000,'coins','Awaiting Approval') "
+                    "RETURNING id",
+                    (biz, profile, plan_id, plan_version_id, milestone_id, milestone_key),
+                )
+                reward_calc_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO reward_adjustments "
+                    "(business_id, reward_calculation_id, adjustment_type, reason, original_amount, "
+                    "adjustment_amount, final_amount, created_by) "
+                    "VALUES (%s,%s,'bonus','isolation-test',1000,100,1100,%s)",
+                    (biz, reward_calc_id, user),
                 )
             _set_scope(cur)  # reset before the real test, same as store.py always does
 
